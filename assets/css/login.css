@@ -1,0 +1,260 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+
+:root {
+    /* Gradiente Roxo muito escuro/preto */
+    --bg-gradient: linear-gradient(135deg, #0a0a12 0%, #1a0b2e 50%, #09050f 100%);
+    --accent-purple: #6d28d9; /* Roxo mais sóbrio */
+    --accent-glow: #8b5cf6;
+    --glass-bg: rgba(255, 255, 255, 0.03); /* Vidro mais sutil */
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --text-main: #f8fafc;
+    --text-muted: #64748b;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Inter', sans-serif;
+    background: var(--bg-gradient);
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+/* Adiciona uma mancha de luz suave no fundo para não ficar totalmente plano */
+body::before {
+    content: "";
+    position: absolute;
+    width: 300px;
+    height: 300px;
+    background: var(--accent-purple);
+    filter: blur(150px);
+    border-radius: 50%;
+    z-index: -1;
+    opacity: 0.2;
+}
+
+.login-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(25px);
+    -webkit-backdrop-filter: blur(25px);
+    border: 1px solid var(--glass-border);
+    border-radius: 28px;
+    padding: 50px 40px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+    text-align: center;
+    animation: fadeIn 1s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.logo {
+    font-size: 2.2rem;
+    font-weight: 800;
+    margin-bottom: 8px;
+    color: var(--text-main);
+    letter-spacing: -1px;
+}
+
+.logo span {
+    color: var(--accent-glow);
+}
+
+.subtitle {
+    color: var(--text-muted);
+    margin-bottom: 35px;
+    font-size: 0.85rem;
+    letter-spacing: 0.5px;
+}
+
+.form-group {
+    text-align: left;
+    margin-bottom: 22px;
+}
+
+.form-group label {
+    display: block;
+    color: #94a3b8;
+    font-size: 0.75rem;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+}
+
+.input-container {
+    position: relative;
+}
+
+.input-container i {
+    position: absolute;
+    left: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+}
+
+.form-input {
+    width: 100%;
+    padding: 15px 15px 15px 48px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--glass-border);
+    border-radius: 14px;
+    color: white;
+    outline: none;
+    transition: all 0.3s ease;
+    box-sizing: border-box;
+    font-size: 0.95rem;
+}
+
+.form-input:focus {
+    border-color: var(--accent-purple);
+    background: rgba(0, 0, 0, 0.6);
+    box-shadow: 0 0 0 4px rgba(109, 40, 217, 0.15);
+}
+
+/* Efeito de destaque no ícone quando foca no input */
+.form-input:focus + i {
+    color: var(--accent-glow);
+}
+
+.btn-login {
+    width: 100%;
+    padding: 16px;
+    background: var(--accent-purple);
+    border: none;
+    border-radius: 14px;
+    color: white;
+    font-weight: 700;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-top: 12px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 10px 15px -3px rgba(109, 40, 217, 0.3);
+}
+
+.btn-login:hover {
+    background: var(--accent-glow);
+    transform: translateY(-2px);
+    box-shadow: 0 15px 25px -5px rgba(139, 92, 246, 0.4);
+}
+
+.error-msg {
+    background: rgba(153, 27, 27, 0.2);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    color: #fca5a5;
+    padding: 12px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    margin-bottom: 25px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Animação de flutuação e brilho no Cartão */
+.login-card {
+    transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), 
+                box-shadow 0.5s ease, 
+                border-color 0.5s ease;
+    will-change: transform; /* Otimização de performance */
+}
+
+.login-card:hover {
+    /* Faz o card subir ligeiramente e inclinar 1 grau */
+    transform: translateY(-8px) rotateX(1deg);
+    
+    /* Aumenta a sombra e a intensidade da borda para parecer que brilha */
+    border-color: rgba(139, 92, 246, 0.4);
+    box-shadow: 0 30px 60px -12px rgba(0, 0, 0, 0.8), 
+                0 0 20px rgba(109, 40, 217, 0.2);
+}
+
+/* Animação interna dos elementos ao passar o rato no card */
+.login-card:hover .logo span {
+    text-shadow: 0 0 25px var(--accent-glow);
+    transition: 0.2s ease;
+}
+
+/* Efeito de "Lift" nos campos de input ao passar o rato individualmente */
+.form-input {
+    transition: all 0.3s ease;
+}
+
+.form-input:hover {
+    background: rgba(255, 255, 255, 0.05);
+    transform: translateX(5px); /* Pequeno deslize para a direita */
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Ajuste no botão para acompanhar o estilo */
+.btn-login {
+    position: relative;
+    overflow: hidden;
+}
+
+/* Efeito de brilho que percorre o botão no hover */
+.btn-login::after {
+    content: "";
+    position: absolute;
+    top: -50%;
+    left: -60%;
+    width: 20%;
+    height: 200%;
+    background: rgba(255, 255, 255, 0.2);
+    transform: rotate(30deg);
+    transition: 0.5s;
+}
+
+.btn-login:hover::after {
+    left: 120%;
+}
+
+/* Estilo para o link de registo e mensagens */
+.register-link {
+    margin-top: 25px;
+    padding-top: 15px;
+    border-top: 1px solid #e2e8f0;
+    font-size: 0.875rem;
+    color: #8b6467;
+    text-align: center;
+}
+
+.register-link a {
+    color: #2563eb;
+    text-decoration: none;
+    font-weight: 600;
+    transition: color 0.2s;
+}
+
+.register-link a:hover {
+    color: #1d4ed8;
+    text-decoration: underline;
+}
+
+/* Estilo para a mensagem de sucesso no registo */
+.success-msg {
+    background-color: #ecfdf5;
+    color: #065f46;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid #10b981;
+    margin-bottom: 20px;
+    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
