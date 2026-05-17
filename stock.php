@@ -17,9 +17,6 @@ if (!isset($_SESSION['role'])) {
     $_SESSION['role'] = $stmt->get_result()->fetch_assoc()['role'] ?? 1;
 }
 
-// Configurações globais
-$currency = "€";
-$stock_limit = 5; // Limite para alerta visual de stock baixo
 
 // Sistema de Filtros Avançados
 $filtros = [];
@@ -518,50 +515,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-function dismissNotification(id, element) {
-    if (confirm('Marcar como lida?')) {
-        fetch('actions/notifications_actions.php?mark_read=' + id + '&ajax=1')
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    const item = element.closest('.notif-item');
-                    const body = item.parentElement;
-                    item.remove();
-                    
-                    // Atualizar badge
-                    const badge = document.querySelector('.bell-badge');
-                    if (badge) {
-                        let count = parseInt(badge.innerText) - 1;
-                        if (count <= 0) {
-                            badge.remove();
-                        } else {
-                            badge.innerText = count;
-                        }
-                    }
-                    
-                    // Se não houver mais notificações, mostrar mensagem
-                    if (body.querySelectorAll('.notif-item').length === 0) {
-                        body.innerHTML = '<div class="no-notifs">Sem alertas pendentes.</div>';
-                    }
-                }
-            });
-    }
-}
-
-function toggleNotifications() {
-    document.getElementById('notifDropdown').classList.toggle('show');
-    document.querySelector('.notification-bell').classList.toggle('active');
-}
-window.addEventListener('click', function(e) {
-    if (!e.target.closest('.notification-bell-container')) {
-        const dropdown = document.getElementById('notifDropdown');
-        const bell = document.querySelector('.notification-bell');
-        if (dropdown && dropdown.classList.contains('show')) {
-            dropdown.classList.remove('show');
-            bell.classList.remove('active');
-        }
-    }
-});
 </script>
 
 <style>
@@ -605,7 +558,7 @@ window.addEventListener('click', function(e) {
 
     function bulkDelete() {
         const ids = Array.from(document.querySelectorAll('.product-checkbox:checked')).map(cb => cb.value);
-        if (confirm('Tem a certeza que deseja eliminar ' + ids.length + ' produtos?')) {
+        showConfirm('Tem a certeza que deseja eliminar ' + ids.length + ' produtos?', () => {
             const formData = new FormData();
             formData.append('ids', JSON.stringify(ids));
             formData.append('action', 'bulk_delete');
@@ -614,10 +567,13 @@ window.addEventListener('click', function(e) {
                 method: 'POST',
                 body: formData
             }).then(r => r.json()).then(data => {
-                if (data.success) location.reload();
-                else alert('Erro ao eliminar produtos: ' + (data.message || 'Erro desconhecido'));
+                if (data.success) {
+                    showToast(ids.length + ' produtos eliminados com sucesso!', 'success');
+                    setTimeout(() => location.reload(), 1500);
+                }
+                else showToast('Erro ao eliminar: ' + (data.message || 'Erro desconhecido'), 'error');
             });
-        }
+        }, "Eliminação em Lote", "fa-trash-sweep");
     }
 
     function bulkExport() {
@@ -635,5 +591,39 @@ window.addEventListener('click', function(e) {
         }
     }
 </script>
+
+<?php
+// Lógica para abrir modal de edição automaticamente via URL (Pesquisa Global)
+if (isset($_GET['edit_id'])) {
+    $edit_id = intval($_GET['edit_id']);
+    $res_edit = $conn->query("SELECT * FROM produtos WHERE id_produto = $edit_id");
+    if ($res_edit && $row_edit = $res_edit->fetch_assoc()) {
+        $desc = addslashes($row_edit['descricao']);
+        $cat = $row_edit['id_categoria'];
+        $qtd = $row_edit['quantidade'];
+        $prc = $row_edit['preco_unit'];
+        $img = $row_edit['imagem'] ?? 'default_product.png';
+        
+        echo "<script>
+            document.addEventListener('DOMContentLoaded', function() {
+                setTimeout(function() {
+                    editarModalStock('$edit_id', '$desc', '$cat', '$qtd', '$prc', '$img');
+                }, 500);
+            });
+        </script>";
+    }
+}
+
+// Lógica para abrir modal de criação automaticamente via URL (FAB / Atalhos)
+if (isset($_GET['action']) && $_GET['action'] === 'new') {
+    echo "<script>
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(function() {
+                if (typeof abrirModalStock === 'function') abrirModalStock();
+            }, 500);
+        });
+    </script>";
+}
+?>
 </body>
 </html>

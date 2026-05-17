@@ -20,64 +20,27 @@ if (!isset($_SESSION['user']) || ($_SESSION['role'] ?? 1) != 0) {
 $is_admin = true;
 
 // Processar filtros
-$filtros = [];
-$data_inicio = $_GET['data_inicio'] ?? date('Y-m-d', strtotime('-30 days'));
+$data_inicio = $_GET['data_inicio'] ?? date('Y-m-d', strtotime('-15 days'));
 $data_fim = $_GET['data_fim'] ?? date('Y-m-d');
-$cliente_filtro = $_GET['cliente'] ?? '';
 $categoria_filtro = $_GET['categoria'] ?? '';
 
-if ($data_inicio) $filtros['data_inicio'] = $data_inicio;
-if ($data_fim) $filtros['data_fim'] = $data_fim;
-if ($cliente_filtro) $filtros['cliente'] = $cliente_filtro;
-if ($categoria_filtro) $filtros['categoria'] = $categoria_filtro;
-
-// Construir cláusula WHERE para filtros
-$where_clauses = [];
-$params = [];
-$types = '';
-
-if ($data_inicio) {
-    $where_clauses[] = "DATE(h.data) >= ?";
-    $params[] = $data_inicio;
-    $types .= 's';
-}
-if ($data_fim) {
-    $where_clauses[] = "DATE(h.data) <= ?";
-    $params[] = $data_fim;
-    $types .= 's';
-}
-if ($cliente_filtro) {
-    $where_clauses[] = "h.cliente LIKE ?";
-    $params[] = "%$cliente_filtro%";
-    $types .= 's';
+// Array auxiliar apenas para saber se existem filtros aplicados
+$filtros = [];
+if (isset($_GET['data_inicio']) || isset($_GET['categoria'])) {
+    $filtros = true;
 }
 
-$where_sql = !empty($where_clauses) ? 'WHERE ' . implode(' AND ', $where_clauses) : '';
-
-// 1. Distribuição Financeira por Categoria (Pie Chart)
+// 1. Distribuição Financeira por Categoria (Pie Chart) - Stock Atual
 $sql_cat = "SELECT c.descricao as cat, SUM(p.quantidade * p.preco_unit) as total_valor
             FROM produtos p
             JOIN categoria c ON p.id_categoria = c.id_categoria";
 
 if ($categoria_filtro) {
-    $sql_cat .= " WHERE p.id_categoria = ?";
-    $params_cat = [$categoria_filtro];
-    $types_cat = 's';
-} else {
-    $params_cat = [];
-    $types_cat = '';
+    $sql_cat .= " WHERE p.id_categoria = '" . $conn->real_escape_string($categoria_filtro) . "'";
 }
-
 $sql_cat .= " GROUP BY p.id_categoria";
-$stmt_cat = !empty($params_cat) ? $conn->prepare($sql_cat) : null;
 
-if ($stmt_cat) {
-    $stmt_cat->bind_param($types_cat, ...$params_cat);
-    $stmt_cat->execute();
-    $res_cat = $stmt_cat->get_result();
-} else {
-    $res_cat = $conn->query($sql_cat);
-}
+$res_cat = $conn->query($sql_cat);
 $cat_labels = [];
 $cat_values = [];
 while ($row = $res_cat->fetch_assoc()) {
@@ -85,54 +48,81 @@ while ($row = $res_cat->fetch_assoc()) {
     $cat_values[] = (float)$row['total_valor'];
 }
 
-// 2. Top 5 Produtos Mais Movimentados (Bar Chart)
+// 2. Top 5 Produtos Mais Movimentados (Bar Chart) - Baseado em TODOS os movimentos no período
 $sql_top = "SELECT p.descricao, SUM(l.quantidade) as total_qty 
             FROM linhas l 
             JOIN produtos p ON l.id_produto = p.id_produto 
-            GROUP BY l.id_produto 
-            ORDER BY total_qty DESC 
-            LIMIT 5";
+            WHERE (
+                l.id IN (SELECT n_cab FROM sai_cab WHERE DATE(data) >= '$data_inicio' AND DATE(data) <= '$data_fim')
+                OR 
+                l.id IN (SELECT n_cab FROM ent_cab WHERE DATE(data) >= '$data_inicio' AND DATE(data) <= '$data_fim')
+            )";
+if ($categoria_filtro) {
+    $sql_top .= " AND p.id_categoria = '" . $conn->real_escape_string($categoria_filtro) . "'";
+}
+$sql_top .= " GROUP BY l.id_produto ORDER BY total_qty DESC LIMIT 5";
+
 $res_top = $conn->query($sql_top);
 $top_labels = [];
 $top_values = [];
-while ($row = $res_top->fetch_assoc()) {
-    $top_labels[] = $row['descricao'];
-    $top_values[] = (int)$row['total_qty'];
+if ($res_top) {
+    while ($row = $res_top->fetch_assoc()) {
+        $top_labels[] = $row['descricao'];
+        $top_values[] = (int)$row['total_qty'];
+    }
 }
 
-// 3. Fluxo Financeiro Diário (Últimos 15 dias)
-$hoje = date('Y-m-d');
-$inicio = date('Y-m-d', strtotime('-15 days'));
-
+// 3. Fluxo Financeiro Diário (No intervalo selecionado)
 // Entradas
 $sql_flux_in = "SELECT DATE(h.data) as d, SUM(l.quantidade * l.preço) as total 
                 FROM ent_cab h 
                 JOIN linhas l ON h.n_cab = l.id 
-                WHERE h.data >= '$inicio' 
-                GROUP BY DATE(h.data)";
+                WHERE DATE(h.data) >= '$data_inicio' AND DATE(h.data) <= '$data_fim'";
+if ($categoria_filtro) {
+    $sql_flux_in .= " AND l.id_categoria = '" . $conn->real_escape_string($categoria_filtro) . "'";
+}
+$sql_flux_in .= " GROUP BY DATE(h.data)";
 $res_flux_in = $conn->query($sql_flux_in);
 $flux_in_data = [];
-while ($row = $res_flux_in->fetch_assoc()) { $flux_in_data[$row['d']] = $row['total']; }
+if ($res_flux_in) {
+    while ($row = $res_flux_in->fetch_assoc()) { 
+        $flux_in_data[$row['d']] = $row['total']; 
+    }
+}
 
 // Saídas
 $sql_flux_out = "SELECT DATE(h.data) as d, SUM(l.quantidade * l.preço) as total 
                  FROM sai_cab h 
                  JOIN linhas l ON h.n_cab = l.id 
-                 WHERE h.data >= '$inicio' 
-                 GROUP BY DATE(h.data)";
+                 WHERE DATE(h.data) >= '$data_inicio' AND DATE(h.data) <= '$data_fim'";
+if ($categoria_filtro) {
+    $sql_flux_out .= " AND l.id_categoria = '" . $conn->real_escape_string($categoria_filtro) . "'";
+}
+$sql_flux_out .= " GROUP BY DATE(h.data)";
 $res_flux_out = $conn->query($sql_flux_out);
 $flux_out_data = [];
-while ($row = $res_flux_out->fetch_assoc()) { $flux_out_data[$row['d']] = $row['total']; }
+if ($res_flux_out) {
+    while ($row = $res_flux_out->fetch_assoc()) { 
+        $flux_out_data[$row['d']] = $row['total']; 
+    }
+}
 
-// Labels dos 15 dias
+// Construir os Labels e Valores Dinamicamente para o intervalo
 $flux_labels = [];
 $flux_in_final = [];
 $flux_out_final = [];
-for ($i = 15; $i >= 0; $i--) {
-    $d = date('Y-m-d', strtotime("-$i days"));
-    $flux_labels[] = date('d/m', strtotime($d));
+
+$current_time = strtotime($data_inicio);
+$end_time = strtotime($data_fim);
+
+while ($current_time <= $end_time) {
+    $d = date('Y-m-d', $current_time);
+    $flux_labels[] = date('d/m', $current_time);
     $flux_in_final[] = $flux_in_data[$d] ?? 0;
     $flux_out_final[] = $flux_out_data[$d] ?? 0;
+    
+    // Avançar 1 dia
+    $current_time = strtotime('+1 day', $current_time);
 }
 ?>
 
@@ -188,62 +178,7 @@ for ($i = 15; $i >= 0; $i--) {
 <body>
     <div class="background-overlay"></div>
     <div class="wrapper">
-        <nav class="navbar">
-            <div class="nav-logo">
-                <i class="fas fa-ghost"></i><span class="t-letter">T</span><span class="store-text">STORE</span>
-            </div>
-            <div class="nav-links">
-                <button class="nav-btn" onclick="location.href='index.php'"><i class="fas fa-chart-line"></i> Dashboard</button>
-                <button class="nav-btn" onclick="location.href='stock.php'"><i class="fas fa-boxes-stacked"></i> Stock</button>
-                <button class="nav-btn" onclick="location.href='movimentos.php'"><i class="fas fa-exchange-alt"></i> Movimentos</button>
-                <button class="nav-btn active" onclick="location.href='gestao.php'"><i class="fas fa-sliders"></i> Gestão</button>
-            </div>
-            <div class="nav-right">
-                                <?php 
-                include_once 'actions/notifications_actions.php';
-                checkStockAlerts();
-                $notif_count = getUnreadCount();
-                ?>
-                <div class="notification-bell-container">
-                    <div class="notification-bell" onclick="toggleNotifications()" title="Notificações">
-                        <i class="fas fa-bell"></i>
-                        <?php if ($notif_count > 0): ?><span class="bell-badge"><?php echo $notif_count; ?></span><?php endif; ?>
-                    </div>
-                    
-                    <div class="notif-dropdown" id="notifDropdown">
-                        <div class="notif-header">
-                            <span><i class="fas fa-bell"></i> Alertas</span>
-                        </div>
-                        <div class="notif-body">
-                            <?php
-                            $notifs = getUnreadNotifications();
-                            if ($notifs && $notifs->num_rows > 0) {
-                                while($n = $notifs->fetch_assoc()) {
-                                    ?>
-                                    <div class="notif-item">
-                                        <div class="notif-content">
-                                            <div class="notif-msg"><?php echo htmlspecialchars($n['mensagem']); ?></div>
-                                            <div class="notif-date"><?php echo date('d/m H:i', strtotime($n['data_criacao'])); ?></div>
-                                        </div>
-                                        <a href="javascript:void(0)" onclick="dismissNotification(<?php echo $n['id_notificacao']; ?>, this)" class="notif-action" title="Marcar como lida"><i class="fas fa-check"></i></a>
-                                    </div>
-                                    <?php
-                                }
-                            } else {
-                                echo "<div class='no-notifs'>Sem alertas pendentes.</div>";
-                            }
-                            ?>
-                        </div>
-                    </div>
-                </div>
-                <span class="user-name clickable" onclick="location.href='perfil.php'">
-                    <i class="fas fa-user-circle"></i>
-                    <?php echo htmlspecialchars($_SESSION["user"]); ?>
-                    <span class="role-badge" style="background: #bc6ff1;">ADMIN</span>
-                </span>
-                <button class="nav-btn logout-btn" onclick="location.href='logout.php'"><i class="fas fa-power-off"></i> Sair</button>
-            </div>
-        </nav>
+        <?php include 'includes/navbar.php'; ?>
 
         <div class="print-header">
             <h1 style="color: #bc6ff1; font-weight: 900; margin-bottom: 5px;">TSTORE</h1>
@@ -340,10 +275,7 @@ for ($i = 15; $i >= 0; $i--) {
                         <label style="display: block; margin-bottom: 8px; color: #aaa; font-size: 0.9rem;">Data Fim</label>
                         <input type="date" name="data_fim" value="<?php echo $data_fim; ?>" class="full-width">
                     </div>
-                    <div>
-                        <label style="display: block; margin-bottom: 8px; color: #aaa; font-size: 0.9rem;">Cliente</label>
-                        <input type="text" name="cliente" value="<?php echo htmlspecialchars($cliente_filtro); ?>" placeholder="Nome do cliente..." class="full-width">
-                    </div>
+
                     <div>
                         <label style="display: block; margin-bottom: 8px; color: #aaa; font-size: 0.9rem;">Categoria</label>
                         <select name="categoria" class="full-width">
@@ -382,7 +314,7 @@ for ($i = 15; $i >= 0; $i--) {
 
                 <!-- Gráfico de Fluxo Financeiro -->
                 <div class="report-card" style="background: linear-gradient(135deg, rgba(188, 111, 241, 0.18), rgba(142, 68, 173, 0.1)) !important; border: 1px solid rgba(188, 111, 241, 0.4) !important;">
-                    <h3><i class="fas fa-wave-square"></i> Fluxo Financeiro (<?php echo $currency; ?>) - Últimos 15 Dias</h3>
+                    <h3><i class="fas fa-wave-square"></i> Fluxo Financeiro (<?php echo $currency; ?>) - Período Selecionado</h3>
                     <div class="chart-wrap"><canvas id="fluxChart"></canvas></div>
                 </div>
 
@@ -485,13 +417,7 @@ for ($i = 15; $i >= 0; $i--) {
         }
     });
 
-    // Mostrar filtros se houver filtros ativos
-    document.addEventListener('DOMContentLoaded', function() {
-        <?php if (!empty($filtros)): ?>
-            const form = document.getElementById('filtersForm');
-            if (form) form.style.display = 'block';
-        <?php endif; ?>
-    });
+
 
     document.addEventListener('DOMContentLoaded', function() {
         // Opções partilhadas
@@ -521,7 +447,7 @@ for ($i = 15; $i >= 0; $i--) {
                     borderWidth: 0
                 }]
             },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#aaa', padding: 20 } } }, cutout: '70%' }
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#aaa', padding: 20 } }, tooltip: { callbacks: { label: function(context) { return ' ' + Number(context.raw).toFixed(2).replace('.', ',') + ' €'; } } } }, cutout: '70%' }
         });
 
         // 3. Top Products Bar Chart
@@ -540,52 +466,6 @@ for ($i = 15; $i >= 0; $i--) {
         });
     });
     </script>
-<script>
-
-function dismissNotification(id, element) {
-    if (confirm('Marcar como lida?')) {
-        fetch('actions/notifications_actions.php?mark_read=' + id + '&ajax=1')
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    const item = element.closest('.notif-item');
-                    const body = item.parentElement;
-                    item.remove();
-                    
-                    // Atualizar badge
-                    const badge = document.querySelector('.bell-badge');
-                    if (badge) {
-                        let count = parseInt(badge.innerText) - 1;
-                        if (count <= 0) {
-                            badge.remove();
-                        } else {
-                            badge.innerText = count;
-                        }
-                    }
-                    
-                    // Se não houver mais notificações, mostrar mensagem
-                    if (body.querySelectorAll('.notif-item').length === 0) {
-                        body.innerHTML = '<div class="no-notifs">Sem alertas pendentes.</div>';
-                    }
-                }
-            });
-    }
-}
-
-function toggleNotifications() {
-    document.getElementById('notifDropdown').classList.toggle('show');
-    document.querySelector('.notification-bell').classList.toggle('active');
-}
-window.addEventListener('click', function(e) {
-    if (!e.target.closest('.notification-bell-container')) {
-        const dropdown = document.getElementById('notifDropdown');
-        const bell = document.querySelector('.notification-bell');
-        if (dropdown && dropdown.classList.contains('show')) {
-            dropdown.classList.remove('show');
-            bell.classList.remove('active');
-        }
-    }
-});
 </script>
 </body>
 </html>

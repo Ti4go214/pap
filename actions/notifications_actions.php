@@ -11,7 +11,8 @@ function checkStockAlerts() {
     if (!$user_id) return;
 
     try {
-        // Buscar produtos abaixo do limite que ainda não têm notificação para este utilizador recentemente
+        // Buscar produtos abaixo do limite que ainda não têm notificação pendente 
+        // ou que não tenham sido arquivadas com a mesma quantidade atual
         $sql = "SELECT p.* FROM produtos p 
                 WHERE p.quantidade <= $stock_limit 
                 AND NOT EXISTS (
@@ -19,21 +20,21 @@ function checkStockAlerts() {
                     WHERE n.id_user = '$user_id'
                     AND n.tipo = 'STOCK_BAIXO' 
                     AND n.mensagem LIKE CONCAT('%', p.descricao, '%') 
-                    AND (n.lida = 0 OR n.data_criacao > DATE_SUB(NOW(), INTERVAL 1 DAY))
+                    AND (n.lida = 0 OR n.mensagem LIKE CONCAT('%(', p.quantidade, ').%'))
                 )";
         
         $res = $conn->query($sql);
         if ($res && $res->num_rows > 0) {
             while ($p = $res->fetch_assoc()) {
                 $msg = "Aviso: O produto '" . $p['descricao'] . "' atingiu o stock crítico (" . $p['quantidade'] . ").";
-                $link = "stock.php";
+                $link = "stock.php?edit_id=" . $p['id_produto']; // Link direto para edição
                 $stmt = $conn->prepare("INSERT INTO notificacoes (id_user, tipo, mensagem, link) VALUES (?, 'STOCK_BAIXO', ?, ?)");
                 $stmt->bind_param("sss", $user_id, $msg, $link);
                 $stmt->execute();
             }
         }
     } catch (Exception $e) {
-        // Ignorar se a tabela não existir (configuração inicial)
+        // Silencioso se houver erro de BD
     }
 }
 

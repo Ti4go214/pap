@@ -563,12 +563,11 @@ $produtos = $conn->query("SELECT id_produto, descricao FROM produtos ORDER BY de
         }
         
         function editarPromocao(id) {
-            // Aqui poderia carregar os dados da promoção para edição
-            alert("Funcionalidade de edição em desenvolvimento.");
+            showToast("Funcionalidade de edição em desenvolvimento.", "info");
         }
         
         function eliminarPromocao(id) {
-            if (confirm("Tem certeza que deseja eliminar esta promoção?")) {
+            showConfirm("Tem a certeza que deseja eliminar esta promoção?", () => {
                 const form = document.createElement("form");
                 form.method = "POST";
                 form.innerHTML = `
@@ -577,7 +576,7 @@ $produtos = $conn->query("SELECT id_produto, descricao FROM produtos ORDER BY de
                 `;
                 document.body.appendChild(form);
                 form.submit();
-            }
+            }, "Eliminar Promoção", "fa-percentage");
         }
         
         // Fechar modal ao clicar fora

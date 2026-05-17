@@ -36,9 +36,9 @@ function editarModalStock(id, descricao, id_categoria, quantidade, preco, imagem
 }
 
 function eliminarStock(id, descricao) {
-    if (confirm("Tem a certeza que deseja eliminar o produto '" + descricao + "'?")) {
+    showConfirm("Tem a certeza que deseja eliminar o produto '" + descricao + "'?", () => {
         window.location.href = "actions/stock_actions.php?delete=" + id;
-    }
+    }, "Eliminar Produto", "fa-trash-alt");
 }
 
 

@@ -46,6 +46,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 </head>
 
 <body>
+    <!-- Background Animated Elements -->
+    <div class="bg-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+    </div>
 
     <div class="login-card">
         <div class="logo"><span>T</span>STORE</div>
@@ -73,9 +79,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     <input type="password" name="pwd" class="form-input" placeholder="••••••••" required>
                 </div>
             </div>
-            <div class="register-link">
-                Ainda não tem conta? <a href="registo.php">Criar conta</a>
-            </div>
+            <!-- Criação de conta externa desativada -->
 
             <button type="submit" class="btn-login">
                 Aceder

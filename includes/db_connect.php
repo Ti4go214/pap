@@ -1,19 +1,18 @@
-<?php 
+<?php
 
 // Configurar timezone para Portugal (inclui horário de verão)
 date_default_timezone_set('Europe/Lisbon');
 
 $host = "127.0.0.1";
-$user= "root";
-$password= "123";
+$user = "root";
+$password = "";
 $bd = "pap";
 $port = "3306";
 
 $conn = new mysqli($host, $user, $password, $bd, $port);
 
-if($conn->connect_error)
-{
-die("Conexão Falhou: " . $conn->connect_error);
+if ($conn->connect_error) {
+    die("Conexão Falhou: " . $conn->connect_error);
 }
 
 
@@ -21,16 +20,19 @@ die("Conexão Falhou: " . $conn->connect_error);
 /**
  * Regista uma ação no sistema de auditoria
  */
-function registarLog($id_user, $acao, $detalhes = "") {
-    global $conn;
-    // Se não for passado um ID, tenta ir buscar à sessão
-    if (empty($id_user) && isset($_SESSION['id_user'])) {
-        $id_user = $_SESSION['id_user'];
+if (!function_exists('registarLog')) {
+    function registarLog($id_user, $acao, $detalhes = "")
+    {
+        global $conn;
+        // Se não for passado um ID, tenta ir buscar à sessão
+        if (empty($id_user) && isset($_SESSION['id_user'])) {
+            $id_user = $_SESSION['id_user'];
+        }
+
+        $stmt = $conn->prepare("INSERT INTO logs (id_user, acao, detalhes) VALUES (?, ?, ?)");
+        $stmt->bind_param("sss", $id_user, $acao, $detalhes);
+        $stmt->execute();
     }
-    
-    $stmt = $conn->prepare("INSERT INTO logs (id_user, acao, detalhes) VALUES (?, ?, ?)");
-    $stmt->bind_param("sss", $id_user, $acao, $detalhes);
-    $stmt->execute();
 }
 
 // Carregar Configurações Globais (Abordagem robusta para configuração inicial)

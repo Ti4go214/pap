@@ -124,50 +124,6 @@ $is_admin = true;
     </div>
 <script>
 
-function dismissNotification(id, element) {
-    if (confirm('Marcar como lida?')) {
-        fetch('actions/notifications_actions.php?mark_read=' + id + '&ajax=1')
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    const item = element.closest('.notif-item');
-                    const body = item.parentElement;
-                    item.remove();
-                    
-                    // Atualizar badge
-                    const badge = document.querySelector('.bell-badge');
-                    if (badge) {
-                        let count = parseInt(badge.innerText) - 1;
-                        if (count <= 0) {
-                            badge.remove();
-                        } else {
-                            badge.innerText = count;
-                        }
-                    }
-                    
-                    // Se não houver mais notificações, mostrar mensagem
-                    if (body.querySelectorAll('.notif-item').length === 0) {
-                        body.innerHTML = '<div class="no-notifs">Sem alertas pendentes.</div>';
-                    }
-                }
-            });
-    }
-}
-
-function toggleNotifications() {
-    document.getElementById('notifDropdown').classList.toggle('show');
-    document.querySelector('.notification-bell').classList.toggle('active');
-}
-window.addEventListener('click', function(e) {
-    if (!e.target.closest('.notification-bell-container')) {
-        const dropdown = document.getElementById('notifDropdown');
-        const bell = document.querySelector('.notification-bell');
-        if (dropdown && dropdown.classList.contains('show')) {
-            dropdown.classList.remove('show');
-            bell.classList.remove('active');
-        }
-    }
-});
 </script>
 </body>
 </html>

@@ -503,8 +503,16 @@ ob_start();
                     <?php endif; ?>
                     
                     <div class="fatura-totals-row total">
-                        <span class="label">Total Geral:</span>
-                        <span class="value"><?php echo number_format(($tipo == 'entrada' ? $total_entradas : $total_saidas), 2); ?> <?php echo $moeda; ?></span>
+                        <span class="label">Total Geral (Movimentado):</span>
+                        <span class="value"><?php 
+                            if ($tipo == 'entrada') {
+                                echo number_format($total_entradas, 2);
+                            } elseif ($tipo == 'saida') {
+                                echo number_format($total_saidas, 2);
+                            } else {
+                                echo number_format($total_entradas + $total_saidas, 2);
+                            }
+                        ?> <?php echo $moeda; ?></span>
                     </div>
                 </div>
             </div>

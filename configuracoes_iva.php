@@ -82,14 +82,22 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $error = "Esta taxa de IVA está a ser usada por $count categorias e não pode ser eliminada.";
         }
     } elseif ($action === 'associar_categoria') {
-        $id_categoria = $_POST['id_categoria'] ?? 0;
-        $id_iva = $_POST['id_iva'] ?? 0;
+        $id_categoria = trim($_POST['id_categoria'] ?? '');
+        $id_iva = $_POST['id_iva'] ?? '';
         
-        $stmt = $conn->prepare("UPDATE categoria SET id_iva=? WHERE id_categoria=?");
-        $stmt->bind_param("ii", $id_iva, $id_categoria);
+        $id_iva_val = (!empty($id_iva) && $id_iva !== '0') ? (int)$id_iva : null;
+        
+        if ($id_iva_val === null) {
+            $stmt = $conn->prepare("UPDATE categoria SET id_iva=NULL WHERE id_categoria=?");
+            $stmt->bind_param("s", $id_categoria);
+        } else {
+            $stmt = $conn->prepare("UPDATE categoria SET id_iva=? WHERE id_categoria=?");
+            $stmt->bind_param("is", $id_iva_val, $id_categoria);
+        }
+        
         if ($stmt->execute()) {
             $success = "Categoria atualizada com taxa de IVA!";
-            registarLog($_SESSION['id_user'], 'CATEGORIA_IVA_ATUALIZADO', "Categoria ID: $id_categoria - IVA ID: $id_iva");
+            registarLog($_SESSION['id_user'], 'CATEGORIA_IVA_ATUALIZADO', "Categoria ID: $id_categoria - IVA ID: " . ($id_iva_val ?? 'NULL'));
         } else {
             $error = "Erro ao atualizar categoria: " . $conn->error;
         }
@@ -349,7 +357,7 @@ $categorias = $conn->query("SELECT c.*, iv.nome as iva_nome, iv.taxa as iva_taxa
                                     <span class="sem-iva">Sem IVA</span>
                                 <?php endif; ?>
                                 
-                                <select onchange="atualizarIvaCategoria(<?php echo $categoria['id_categoria']; ?>, this.value)" style="padding: 6px; border-radius: 5px; background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(188,111,241,0.3);">
+                                <select onchange="atualizarIvaCategoria('<?php echo htmlspecialchars(addslashes($categoria['id_categoria'])); ?>', this.value)" style="padding: 6px; border-radius: 5px; background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(188,111,241,0.3);">
                                     <option value="">Alterar IVA</option>
                                     <?php 
                                     // Resetar ponteiro das taxas
@@ -437,12 +445,11 @@ $categorias = $conn->query("SELECT c.*, iv.nome as iva_nome, iv.taxa as iva_taxa
         }
         
         function editarIva(id) {
-            // Aqui poderia carregar os dados da taxa para edição
-            alert("Funcionalidade de edição em desenvolvimento.");
+            showToast("Funcionalidade de edição em desenvolvimento.", "info");
         }
         
         function eliminarIva(id) {
-            if (confirm("Tem certeza que deseja eliminar esta taxa de IVA?")) {
+            showConfirm("Tem certeza que deseja eliminar esta taxa de IVA?", () => {
                 const form = document.createElement("form");
                 form.method = "POST";
                 form.innerHTML = `
@@ -451,11 +458,11 @@ $categorias = $conn->query("SELECT c.*, iv.nome as iva_nome, iv.taxa as iva_taxa
                 `;
                 document.body.appendChild(form);
                 form.submit();
-            }
+            }, "Eliminar Taxa IVA", "fa-percent");
         }
         
         function atualizarIvaCategoria(idCategoria, idIva) {
-            if (confirm("Deseja alterar a taxa de IVA desta categoria?")) {
+            showConfirm("Deseja alterar a taxa de IVA desta categoria?", () => {
                 const form = document.createElement("form");
                 form.method = "POST";
                 form.innerHTML = `
@@ -465,7 +472,7 @@ $categorias = $conn->query("SELECT c.*, iv.nome as iva_nome, iv.taxa as iva_taxa
                 `;
                 document.body.appendChild(form);
                 form.submit();
-            }
+            }, "Atualizar IVA", "fa-tags");
         }
         
         // Fechar modal ao clicar fora

@@ -42,70 +42,7 @@ $resultado = $conn->query($sql);
 <body>
     <div class="background-overlay"></div>
     <div class="wrapper">
-        <nav class="navbar">
-            <div class="nav-logo">
-                <i class="fas fa-ghost"></i><span class="t-letter">T</span><span class="store-text">STORE</span>
-            </div>
-
-            <button class="hamburger" onclick="toggleMobileMenu()">
-                <i class="fas fa-bars"></i>
-            </button>
-
-            <div class="nav-links" id="navLinks">
-                <button class="nav-btn" onclick="location.href='index.php'"><i class="fas fa-chart-line"></i> Dashboard</button>
-                <button class="nav-btn" onclick="location.href='stock.php'"><i class="fas fa-boxes-stacked"></i> Stock</button>
-                <button class="nav-btn" onclick="location.href='movimentos.php'"><i class="fas fa-exchange-alt"></i> Movimentos</button>
-                <button class="nav-btn active" onclick="location.href='gestao.php'"><i class="fas fa-sliders"></i> Gestão</button>
-            </div>
-
-            <div class="nav-right">
-                <?php 
-                include_once 'actions/notifications_actions.php';
-                checkStockAlerts();
-                $notif_count = getUnreadCount();
-                ?>
-                <div class="notification-bell-container">
-                    <div class="notification-bell" onclick="toggleNotifications()" title="Notificações">
-                        <i class="fas fa-bell"></i>
-                        <?php if ($notif_count > 0): ?><span class="bell-badge"><?php echo $notif_count; ?></span><?php endif; ?>
-                    </div>
-                    
-                    <div class="notif-dropdown" id="notifDropdown">
-                        <div class="notif-header">
-                            <span><i class="fas fa-bell"></i> Alertas</span>
-                        </div>
-                        <div class="notif-body">
-                            <?php
-                            $notifs = getUnreadNotifications();
-                            if ($notifs && $notifs->num_rows > 0) {
-                                while($n = $notifs->fetch_assoc()) {
-                                    ?>
-                                    <div class="notif-item">
-                                        <div class="notif-content">
-                                            <div class="notif-msg"><?php echo htmlspecialchars($n['mensagem']); ?></div>
-                                            <div class="notif-date"><?php echo date('d/m H:i', strtotime($n['data_criacao'])); ?></div>
-                                        </div>
-                                        <a href="javascript:void(0)" onclick="dismissNotification(<?php echo $n['id_notificacao']; ?>, this)" class="notif-action" title="Marcar como lida"><i class="fas fa-check"></i></a>
-                                    </div>
-                                    <?php
-                                }
-                            } else {
-                                echo "<div class='no-notifs'>Sem alertas pendentes.</div>";
-                            }
-                            ?>
-                        </div>
-                    </div>
-                </div>
-                <span class="user-name clickable" onclick="location.href='perfil.php'" title="Ver Perfil">
-                    <i class="fas fa-user-circle"></i>
-                    <?php echo htmlspecialchars($_SESSION["user"]); ?>
-                    <span class="role-badge" style="background: #bc6ff1;">ADMIN</span>
-                </span>
-                <button class="nav-btn logout-btn" onclick="location.href='logout.php'">
-                    <i class="fas fa-power-off"></i> Sair
-                </button>
-            </div>
-        </nav>
+        <?php include 'includes/navbar.php'; ?>
 
         <main class="content-area">
             <header class="table-header">
@@ -199,51 +136,6 @@ $resultado = $conn->query($sql);
 
     <script>
     
-function dismissNotification(id, element) {
-    if (confirm('Marcar como lida?')) {
-        fetch('actions/notifications_actions.php?mark_read=' + id + '&ajax=1')
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    const item = element.closest('.notif-item');
-                    const body = item.parentElement;
-                    item.remove();
-                    
-                    // Atualizar badge
-                    const badge = document.querySelector('.bell-badge');
-                    if (badge) {
-                        let count = parseInt(badge.innerText) - 1;
-                        if (count <= 0) {
-                            badge.remove();
-                        } else {
-                            badge.innerText = count;
-                        }
-                    }
-                    
-                    // Se não houver mais notificações, mostrar mensagem
-                    if (body.querySelectorAll('.notif-item').length === 0) {
-                        body.innerHTML = '<div class="no-notifs">Sem alertas pendentes.</div>';
-                    }
-                }
-            });
-    }
-}
-
-function toggleNotifications() {
-        document.getElementById('notifDropdown').classList.toggle('show');
-        document.querySelector('.notification-bell').classList.toggle('active');
-    }
-    window.addEventListener('click', function(e) {
-        if (!e.target.closest('.notification-bell-container')) {
-            const dropdown = document.getElementById('notifDropdown');
-            const bell = document.querySelector('.notification-bell');
-            if (dropdown && dropdown.classList.contains('show')) {
-                dropdown.classList.remove('show');
-                bell.classList.remove('active');
-            }
-        }
-    });
-
     // Logística do Modal
     const modal = document.getElementById("modalCategoria");
     
@@ -270,24 +162,30 @@ function toggleNotifications() {
     }
 
     function eliminarCategoria(id) {
-        if (confirm("Tem a certeza que deseja eliminar a categoria '" + id + "'?\nAtenção: a base de dados impedirá a eliminação se existirem produtos associados a esta categoria.")) {
+        showConfirm("Tem a certeza que deseja eliminar a categoria '" + id + "'?\nAtenção: a base de dados impedirá a eliminação se existirem produtos associados a esta categoria.", () => {
             window.location.href = "actions/categoria_actions.php?delete_id=" + encodeURIComponent(id);
-        }
+        }, "Eliminar Categoria", "fa-folder-minus");
     }
-
-    function toggleMobileMenu() {
-        const navLinks = document.getElementById('navLinks');
-        navLinks.classList.toggle('active');
-    }
-
-    document.addEventListener('click', function(e) {
-        const navLinks = document.getElementById('navLinks');
-        const hamburger = document.querySelector('.hamburger');
-        
-        if (!navLinks.contains(e.target) && !hamburger.contains(e.target)) {
-            navLinks.classList.remove('active');
-        }
-    });
     </script>
+
+<?php
+// Lógica para abrir modal de edição automaticamente via URL
+if (isset($_GET['edit_id'])) {
+    $edit_id = $_GET['edit_id'];
+    $res_edit = $conn->query("SELECT * FROM categoria WHERE id_categoria = '$edit_id'");
+    if ($res_edit && $row_edit = $res_edit->fetch_assoc()) {
+        $id = addslashes($row_edit['id_categoria']);
+        $desc = addslashes($row_edit['descricao']);
+        
+        echo "<script>
+            document.addEventListener('DOMContentLoaded', function() {
+                setTimeout(function() {
+                    editarModalCategoria('$id', '$desc');
+                }, 500);
+            });
+        </script>";
+    }
+}
+?>
 </body>
 </html>

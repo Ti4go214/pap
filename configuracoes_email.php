@@ -54,7 +54,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $email_teste = $_POST['email_teste'] ?? '';
         
         if (!empty($email_teste)) {
-            include __DIR__ . '/email_notifications.php';
+            include __DIR__ . '/actions/email_notifications.php';
             
             $mensagem = '<html><body>';
             $mensagem .= '<h2 style="color: #10b981;">✅ Teste de Configuração de Email</h2>';

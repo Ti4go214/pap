@@ -278,13 +278,13 @@ $clientes = $conn->query($sql);
         }
 
         function eliminarCliente(id, nome) {
-            if (confirm('Tem a certeza que deseja eliminar o cliente "' + nome + '"?')) {
+            showConfirm('Tem a certeza que deseja eliminar o cliente "' + nome + '"?', () => {
                 const form = document.createElement('form');
                 form.method = 'POST';
                 form.innerHTML = '<input type="hidden" name="action" value="eliminar"><input type="hidden" name="id" value="' + id + '">';
                 document.body.appendChild(form);
                 form.submit();
-            }
+            }, "Eliminar Cliente", "fa-user-minus");
         }
 
         // Fechar modal ao clicar fora
@@ -310,5 +310,42 @@ $clientes = $conn->query($sql);
             }
         });
     </script>
+
+<?php
+// Lógica para abrir modal de edição automaticamente via URL
+if (isset($_GET['edit_id'])) {
+    $edit_id = intval($_GET['edit_id']);
+    $res_edit = $conn->query("SELECT * FROM clientes WHERE id_cliente = $edit_id");
+    if ($res_edit && $row_edit = $res_edit->fetch_assoc()) {
+        $nome = addslashes($row_edit['nome']);
+        $nif = addslashes($row_edit['nif'] ?? '');
+        $email = addslashes($row_edit['email'] ?? '');
+        $tel = addslashes($row_edit['telefone'] ?? '');
+        $morada = addslashes($row_edit['morada'] ?? '');
+        $cp = addslashes($row_edit['cpostal'] ?? '');
+        $loc = addslashes($row_edit['localidade'] ?? '');
+        $pais = addslashes($row_edit['pais'] ?? 'Portugal');
+        
+        echo "<script>
+            document.addEventListener('DOMContentLoaded', function() {
+                setTimeout(function() {
+                    editarCliente('$edit_id', '$nome', '$nif', '$email', '$tel', '$morada', '$cp', '$loc', '$pais');
+                }, 500);
+            });
+        </script>";
+    }
+}
+
+// Lógica para abrir modal de criação automaticamente via URL (FAB / Atalhos)
+if (isset($_GET['action']) && $_GET['action'] === 'new') {
+    echo "<script>
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(function() {
+                if (typeof abrirModal === 'function') abrirModal();
+            }, 500);
+        });
+    </script>";
+}
+?>
 </body>
 </html>

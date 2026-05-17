@@ -1,53 +1,85 @@
 <?php
-/**
- * @file email_notifications.php
- * @brief Sistema de notificações por email
- * @author Antigravity
- * @date 2026-05-12
- */
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+use PHPMailer\PHPMailer\SMTP;
 
-include __DIR__ . '/../includes/db_connect.php';
+require_once __DIR__ . '/../includes/PHPMailer/Exception.php';
+require_once __DIR__ . '/../includes/PHPMailer/PHPMailer.php';
+require_once __DIR__ . '/../includes/PHPMailer/SMTP.php';
 
-// Configurações de email (pode mover para tabela config depois)
+include_once __DIR__ . '/../includes/db_connect.php';
+
+// Configurações de email
 $email_config = [
-    'smtp_host' => $settings['smtp_host'] ?? 'localhost',
+    'smtp_host' => $settings['smtp_host'] ?? '',
     'smtp_port' => $settings['smtp_port'] ?? 587,
     'smtp_username' => $settings['smtp_username'] ?? '',
     'smtp_password' => $settings['smtp_password'] ?? '',
-    'smtp_from' => $settings['smtp_from'] ?? 'noreply@tstore.pt',
+    'smtp_from' => $settings['smtp_from'] ?? '',
     'smtp_from_name' => $settings['smtp_from_name'] ?? 'TSTORE Sistema'
 ];
 
+// URL base do sistema para links nos emails
+$base_url = rtrim($settings['site_url'] ?? 'http://localhost/pap', '/');
+
 /**
- * Enviar email usando PHPMailer ou função mail() nativa
+ * Enviar email usando PHPMailer via SMTP
  */
 function enviarEmail($para, $assunto, $mensagem, $html = false) {
     global $email_config;
     
-    // Para simplificação, usar função mail() nativa
-    // Em produção, deve usar PHPMailer ou outra biblioteca robusta
-    $headers = [];
-    
-    if ($html) {
-        $headers[] = 'MIME-Version: 1.0';
-        $headers[] = 'Content-type: text/html; charset=UTF-8';
-    } else {
-        $headers[] = 'Content-type: text/plain; charset=UTF-8';
+    // Validar se temos as configurações básicas
+    if (empty($email_config['smtp_host']) || empty($email_config['smtp_username'])) {
+        return false;
     }
-    
-    $headers[] = 'From: ' . $email_config['smtp_from_name'] . ' <' . $email_config['smtp_from'] . '>';
-    $headers[] = 'Reply-To: ' . $email_config['smtp_from'];
-    $headers[] = 'X-Mailer: PHP/' . phpversion();
-    
-    $headers_str = implode("\r\n", $headers);
-    
-    return mail($para, $assunto, $mensagem, $headers_str);
+
+    $mail = new PHPMailer(true);
+
+    try {
+        // Configurações do Servidor
+        $mail->isSMTP();
+        $mail->Host       = $email_config['smtp_host'];
+        $mail->SMTPAuth   = true;
+        $mail->Username   = $email_config['smtp_username'];
+        $mail->Password   = $email_config['smtp_password'];
+        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port       = $email_config['smtp_port'];
+        $mail->CharSet    = 'UTF-8';
+
+        // Destinatários
+        $mail->setFrom($email_config['smtp_from'], $email_config['smtp_from_name']);
+        
+        // Suporte para múltiplos destinatários separados por vírgula
+        if (strpos($para, ',') !== false) {
+            $emails = explode(',', $para);
+            foreach ($emails as $email) {
+                $mail->addAddress(trim($email));
+            }
+        } else {
+            $mail->addAddress($para);
+        }
+
+        // Conteúdo
+        $mail->isHTML($html);
+        $mail->Subject = $assunto;
+        $mail->Body    = $mensagem;
+        
+        if (!$html) {
+            $mail->AltBody = strip_tags($mensagem);
+        }
+
+        return $mail->send();
+    } catch (Exception $e) {
+        error_log("Erro ao enviar email: {$mail->ErrorInfo}");
+        return false;
+    }
 }
 
 /**
  * Enviar alerta de stock baixo
  */
 function enviarAlertaStockBaixo($produtos) {
+    global $email_config;
     if (empty($produtos)) return false;
     
     $mensagem = '<html><body>';
@@ -70,7 +102,7 @@ function enviarAlertaStockBaixo($produtos) {
     
     $mensagem .= '</table>';
     $mensagem .= '<p style="margin-top: 20px;">Por favor, reponha o stock o mais breve possível para evitar rupturas.</p>';
-    $mensagem .= '<p><a href="http://seu-dominio.com/anti/stock.php" style="background: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ver Stock</a></p>';
+    $mensagem .= '<p><a href="' . $base_url . '/stock.php" style="background: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ver Stock</a></p>';
     $mensagem .= '</body></html>';
     
     return enviarEmail(
@@ -85,7 +117,7 @@ function enviarAlertaStockBaixo($produtos) {
  * Enviar resumo diário de vendas
  */
 function enviarResumoDiarioVendas($data = null) {
-    global $conn;
+    global $conn, $email_config;
     
     if (!$data) {
         $data = date('Y-m-d', strtotime('yesterday'));
@@ -145,7 +177,7 @@ function enviarResumoDiarioVendas($data = null) {
     
     $mensagem .= '</div>';
     $mensagem .= '</div>';
-    $mensagem .= '<p style="margin-top: 20px;"><a href="http://seu-dominio.com/anti/relatorios.php" style="background: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ver Relatórios</a></p>';
+    $mensagem .= '<p style="margin-top: 20px;"><a href="' . $base_url . '/relatorios.php" style="background: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ver Relatórios</a></p>';
     $mensagem .= '</body></html>';
     
     return enviarEmail(
@@ -160,6 +192,7 @@ function enviarResumoDiarioVendas($data = null) {
  * Enviar alerta de nova encomenda
  */
 function enviarAlertaNovaEncomenda($encomenda) {
+    global $conn, $email_config;
     $mensagem = '<html><body>';
     $mensagem .= '<h2 style="color: #3b82f6;">🛒 Nova Encomenda Recebida</h2>';
     $mensagem .= '<p><strong>Número:</strong> ' . htmlspecialchars($encomenda['num_encomenda']) . '</p>';
@@ -175,7 +208,7 @@ function enviarAlertaNovaEncomenda($encomenda) {
     $total = $total_result->fetch_assoc()['total'];
     
     $mensagem .= '<p><strong>Valor Total:</strong> €' . number_format($total, 2, ',', '.') . '</p>';
-    $mensagem .= '<p style="margin-top: 20px;"><a href="http://seu-dominio.com/anti/encomendas.php" style="background: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ver Encomenda</a></p>';
+    $mensagem .= '<p style="margin-top: 20px;"><a href="' . $base_url . '/encomendas.php" style="background: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ver Encomenda</a></p>';
     $mensagem .= '</body></html>';
     
     return enviarEmail(
@@ -190,7 +223,7 @@ function enviarAlertaNovaEncomenda($encomenda) {
  * Verificar e enviar alertas automáticos
  */
 function verificarAlertasAutomaticos() {
-    global $conn;
+    global $conn, $settings;
     
     // 1. Alertas de stock baixo
     $stock_limit = $settings['stock_low_limit'] ?? 5;
@@ -222,6 +255,50 @@ function verificarAlertasAutomaticos() {
     if ($hora_atual == '08') {
         enviarResumoDiarioVendas();
     }
+}
+
+/**
+ * Enviar email ao cliente quando a encomenda é entregue
+ */
+function enviarEmailStatusEntregue($id_encomenda) {
+    global $conn, $email_config;
+    
+    $sql = "SELECT e.*, c.nome as nome_cliente, c.email as email_cliente 
+            FROM encomendas e 
+            JOIN clientes c ON e.id_cliente = c.id_cliente 
+            WHERE e.id_encomenda = " . (int)$id_encomenda;
+    $res = $conn->query($sql);
+    
+    if ($res && $res->num_rows > 0) {
+        $dados = $res->fetch_assoc();
+        $email_cliente = $dados['email_cliente'];
+        
+        if (empty($email_cliente)) return false;
+
+        $mensagem = '<html><body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">';
+        $mensagem .= '<div style="max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 10px; overflow: hidden;">';
+        $mensagem .= '<div style="background: #bc6ff1; padding: 20px; text-align: center; color: white;">';
+        $mensagem .= '<h1 style="margin: 0;">TSTORE</h1>';
+        $mensagem .= '</div>';
+        $mensagem .= '<div style="padding: 30px;">';
+        $mensagem .= '<h2>Olá, ' . htmlspecialchars($dados['nome_cliente']) . '! 👋</h2>';
+        $mensagem .= '<p>Temos o prazer de informar que a sua encomenda <strong>#' . $dados['num_encomenda'] . '</strong> foi entregue com sucesso.</p>';
+        $mensagem .= '<div style="background: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;">';
+        $mensagem .= '<p style="margin: 0;"><strong>Data da Entrega:</strong> ' . date('d/m/Y H:i') . '</p>';
+        $mensagem .= '<p style="margin: 5px 0 0 0;"><strong>Estado:</strong> ✅ Entregue</p>';
+        $mensagem .= '</div>';
+        $mensagem .= '<p>Esperamos que esteja satisfeito com os seus produtos. Se tiver alguma dúvida, não hesite em contactar-nos.</p>';
+        $mensagem .= '<p>Obrigado por escolher a <strong>TSTORE</strong>!</p>';
+        $mensagem .= '</div>';
+        $mensagem .= '<div style="background: #f1f1f1; padding: 15px; text-align: center; font-size: 0.8rem; color: #777;">';
+        $mensagem .= 'Este é um email automático, por favor não responda.';
+        $mensagem .= '</div>';
+        $mensagem .= '</div>';
+        $mensagem .= '</body></html>';
+
+        return enviarEmail($email_cliente, '📦 A sua encomenda foi entregue! - ' . $dados['num_encomenda'], $mensagem, true);
+    }
+    return false;
 }
 
 // Executar verificação se chamado diretamente

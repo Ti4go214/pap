@@ -91,28 +91,7 @@ $res_full = $conn->query("SELECT * FROM config ORDER BY tab_group, label");
 <body>
     <div class="background-overlay"></div>
     <div class="wrapper">
-        <nav class="navbar">
-            <div class="nav-logo">
-                <i class="fas fa-ghost"></i><span class="t-letter">T</span><span class="store-text">STORE</span>
-            </div>
-
-            <button class="hamburger" onclick="toggleMobileMenu()">
-                <i class="fas fa-bars"></i>
-            </button>
-
-            <div class="nav-links" id="navLinks">
-                <button class="nav-btn" onclick="location.href='index.php'"><i class="fas fa-chart-line"></i> Dashboard</button>
-                <button class="nav-btn" onclick="location.href='stock.php'"><i class="fas fa-boxes-stacked"></i> Stock</button>
-                <button class="nav-btn" onclick="location.href='movimentos.php'"><i class="fas fa-exchange-alt"></i> Movimentos</button>
-                <button class="nav-btn active" onclick="location.href='gestao.php'"><i class="fas fa-sliders"></i> Gestão</button>
-            </div>
-            <div class="nav-right">
-                <span class="user-name clickable" onclick="location.href='perfil.php'">
-                    <i class="fas fa-user-circle"></i> <?php echo htmlspecialchars($_SESSION["user"]); ?>
-                </span>
-                <button class="nav-btn logout-btn" onclick="location.href='logout.php'"><i class="fas fa-power-off"></i> Sair</button>
-            </div>
-        </nav>
+        <?php include 'includes/navbar.php'; ?>
 
         <main class="content-area">
             <header class="table-header">
@@ -126,119 +105,57 @@ $res_full = $conn->query("SELECT * FROM config ORDER BY tab_group, label");
             </header>
 
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 30px;">
-                <div class="config-group">
-                    <h3><i class="fas fa-percentage"></i> Gestão de IVA</h3>
-                    <p style="color: #ccc; margin-bottom: 15px;">Configure taxas de IVA e associação a categorias</p>
+                <div class="config-group" style="margin-bottom: 0;">
+                    <h3><i class="fas fa-percentage"></i> Sistema de IVA</h3>
+                    <p style="color: #ccc; margin-bottom: 20px; font-size: 0.9rem;">Configure as taxas de imposto aplicáveis e a respetiva associação às categorias de produtos do seu inventário.</p>
                     <button class="nav-btn" onclick="location.href='configuracoes_iva.php'" style="width: 100%;">
-                        <i class="fas fa-cog"></i> Configurar IVA
+                        <i class="fas fa-external-link-alt"></i> Gerir Taxas de IVA
                     </button>
                 </div>
 
-                <div class="config-group">
-                    <h3><i class="fas fa-envelope"></i> Notificações por Email</h3>
-                    <p style="color: #ccc; margin-bottom: 15px;">Configure SMTP e alertas automáticos</p>
+                <div class="config-group" style="margin-bottom: 0;">
+                    <h3><i class="fas fa-envelope"></i> Servidor SMTP e Alertas</h3>
+                    <p style="color: #ccc; margin-bottom: 20px; font-size: 0.9rem;">Defina as credenciais de envio de email para notificações de stock crítico e alertas de entrega de encomendas a clientes.</p>
                     <button class="nav-btn" onclick="location.href='configuracoes_email.php'" style="width: 100%;">
-                        <i class="fas fa-cog"></i> Configurar Email
-                    </button>
-                </div>
-
-                <div class="config-group">
-                    <h3><i class="fas fa-database"></i> Migração de Dados</h3>
-                    <p style="color: #ccc; margin-bottom: 15px;">Execute migrações para novas funcionalidades</p>
-                    <button class="nav-btn" onclick="location.href='migrar_novas_funcionalidades.php'" style="width: 100%;">
-                        <i class="fas fa-play"></i> Executar Migração
+                        <i class="fas fa-external-link-alt"></i> Configurar Servidor de Email
                     </button>
                 </div>
             </div>
 
             <?php if ($mensagem): ?><div class="success-bar"><?php echo $mensagem; ?></div><?php endif; ?>
 
-            <form method="POST" class="config-container">
-                <div class="config-group">
-                    <h3><i class="fas fa-palette"></i> Identidade & Marca</h3>
-                    <?php 
-                    $res_full->data_seek(0);
-                    while($row = $res_full->fetch_assoc()): 
-                        if ($row['tab_group'] == 'GERAL' && $row['param_key'] != 'app_name'):
-                    ?>
-                        <div class="config-item">
-                            <label><?php echo $row['label']; ?></label>
-                            <input type="text" name="config[<?php echo $row['param_key']; ?>]" value="<?php echo htmlspecialchars($row['param_value']); ?>">
-                        </div>
-                    <?php 
-                        endif;
-                    endwhile; 
-                    ?>
-                </div>
-
-                <div class="btn-group">
-                    <button type="submit" name="save_config" class="nav-btn active">
-                        <i class="fas fa-save"></i> Guardar Alterações
-                    </button>
-                </div>
-            </form>
+            <div class="config-group">
+                <h3><i class="fas fa-palette"></i> Identidade & Marca</h3>
+                <p style="color: #ccc; margin-bottom: 25px; font-size: 0.9rem;">Definições de aparência e informações globais da loja.</p>
+                
+                <form method="POST">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+                        <?php 
+                        $res_full->data_seek(0);
+                        while($row = $res_full->fetch_assoc()): 
+                            if (in_array($row['label'], ['Limite de Stock Baixo', 'Símbolo da Moeda', 'Texto do Rodapé'])):
+                        ?>
+                            <div>
+                                <label style="display: block; margin-bottom: 8px; color: #aaa; font-size: 0.9rem;"><?php echo $row['label']; ?></label>
+                                <input type="text" name="config[<?php echo $row['param_key']; ?>]" value="<?php echo htmlspecialchars($row['param_value']); ?>" style="width: 100%;">
+                            </div>
+                        <?php 
+                            endif;
+                        endwhile; 
+                        ?>
+                    </div>
+                    
+                    <div style="margin-top: 30px; border-top: 1px solid rgba(188, 111, 241, 0.2); padding-top: 20px; text-align: right;">
+                        <button type="submit" name="save_config" class="nav-btn active">
+                            <i class="fas fa-save"></i> Guardar Alterações
+                        </button>
+                    </div>
+                </form>
+            </div>
         </main>
     </div>
 <script>
 
-function dismissNotification(id, element) {
-    if (confirm('Marcar como lida?')) {
-        fetch('actions/notifications_actions.php?mark_read=' + id + '&ajax=1')
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    const item = element.closest('.notif-item');
-                    const body = item.parentElement;
-                    item.remove();
-                    
-                    // Atualizar badge
-                    const badge = document.querySelector('.bell-badge');
-                    if (badge) {
-                        let count = parseInt(badge.innerText) - 1;
-                        if (count <= 0) {
-                            badge.remove();
-                        } else {
-                            badge.innerText = count;
-                        }
-                    }
-                    
-                    // Se não houver mais notificações, mostrar mensagem
-                    if (body.querySelectorAll('.notif-item').length === 0) {
-                        body.innerHTML = '<div class="no-notifs">Sem alertas pendentes.</div>';
-                    }
-                }
-            });
-    }
-}
-
-function toggleNotifications() {
-    document.getElementById('notifDropdown').classList.toggle('show');
-    document.querySelector('.notification-bell').classList.toggle('active');
-}
-window.addEventListener('click', function(e) {
-    if (!e.target.closest('.notification-bell-container')) {
-        const dropdown = document.getElementById('notifDropdown');
-        const bell = document.querySelector('.notification-bell');
-        if (dropdown && dropdown.classList.contains('show')) {
-            dropdown.classList.remove('show');
-            bell.classList.remove('active');
-        }
-    }
-});
-
-function toggleMobileMenu() {
-    const navLinks = document.getElementById('navLinks');
-    navLinks.classList.toggle('active');
-}
-
-document.addEventListener('click', function(e) {
-    const navLinks = document.getElementById('navLinks');
-    const hamburger = document.querySelector('.hamburger');
-    
-    if (!navLinks.contains(e.target) && !hamburger.contains(e.target)) {
-        navLinks.classList.remove('active');
-    }
-});
 </script>
 </body>
 </html>

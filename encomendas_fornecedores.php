@@ -1,9 +1,9 @@
 <?php
 /**
- * @file encomendas.php
- * @brief Página de gestão de encomendas/vendas
+ * @file encomendas_fornecedores.php
+ * @brief Página de gestão de encomendas a fornecedores (compras)
  * @author Antigravity
- * @date 2026-05-12
+ * @date 2026-05-17
  */
 
 if (session_status() === PHP_SESSION_NONE) {
@@ -24,24 +24,37 @@ $is_admin = ($role == 0);
 $pode_gerir = ($role == 0 || $role == 2);
 
 /**
- * Garante que as colunas necessárias para o desconto na próxima encomenda existem.
- * (Cria-as automaticamente se faltarem, para evitar erros em instalações já existentes.)
+ * Garante que as tabelas encomendas_fornecedores e encomendas_fornecedores_linhas existem.
+ * (Cria-as automaticamente se faltarem, para evitar erros fatais em instalações onde a migração não foi executada.)
  */
-function ensureDescontoProximaEncomendaSchema($conn) {
-    // clientes.desconto_pendente
-    $res = $conn->query("SHOW COLUMNS FROM clientes LIKE 'desconto_pendente'");
-    if ($res && $res->num_rows === 0) {
-        $conn->query("ALTER TABLE clientes ADD COLUMN desconto_pendente TINYINT(1) NOT NULL DEFAULT 0");
-    }
+function ensureEncomendasFornecedoresSchema($conn) {
+    $sql_encomendas_fornecedores = "CREATE TABLE IF NOT EXISTS encomendas_fornecedores (
+        id_enc_fornecedor INT AUTO_INCREMENT PRIMARY KEY,
+        num_encomenda VARCHAR(20) NOT NULL UNIQUE,
+        id_fornecedor INT NOT NULL,
+        data_encomenda DATE NOT NULL,
+        estado ENUM('pendente','enviado','recebido','cancelado') DEFAULT 'pendente',
+        observacoes TEXT,
+        total_bruto DECIMAL(10,2) DEFAULT 0,
+        total_liquido DECIMAL(10,2) DEFAULT 0,
+        data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (id_fornecedor) REFERENCES fornecedores(id_fornecedor)
+    )";
+    $conn->query($sql_encomendas_fornecedores);
 
-    // encomendas.desconto_percent
-    $res = $conn->query("SHOW COLUMNS FROM encomendas LIKE 'desconto_percent'");
-    if ($res && $res->num_rows === 0) {
-        $conn->query("ALTER TABLE encomendas ADD COLUMN desconto_percent DECIMAL(5,2) NOT NULL DEFAULT 0");
-    }
+    $sql_encomendas_forn_linhas = "CREATE TABLE IF NOT EXISTS encomendas_fornecedores_linhas (
+        id_linha INT AUTO_INCREMENT PRIMARY KEY,
+        id_enc_fornecedor INT NOT NULL,
+        id_produto INT NOT NULL,
+        quantidade INT NOT NULL,
+        preco_unitario DECIMAL(10,2) NOT NULL,
+        FOREIGN KEY (id_enc_fornecedor) REFERENCES encomendas_fornecedores(id_enc_fornecedor) ON DELETE CASCADE,
+        FOREIGN KEY (id_produto) REFERENCES produtos(id_produto)
+    )";
+    $conn->query($sql_encomendas_forn_linhas);
 }
 
-ensureDescontoProximaEncomendaSchema($conn);
+ensureEncomendasFornecedoresSchema($conn);
 
 // Processar formulário
 $success = "";
@@ -51,68 +64,44 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $action = $_POST['action'] ?? '';
     
     if (!$pode_gerir) {
-        $error = "Acesso negado: Apenas administradores e vendedores podem criar ou gerir encomendas.";
+        $error = "Acesso negado: Apenas administradores e vendedores podem criar ou gerir encomendas a fornecedores.";
     } else {
         if ($action === 'adicionar' || $action === 'editar') {
-        $id_cliente = (int)($_POST['id_cliente'] ?? 0);
+        $id_fornecedor = (int)($_POST['id_fornecedor'] ?? 0);
         $data_encomenda = $_POST['data_encomenda'] ?? date('Y-m-d');
         $estado = $_POST['estado'] ?? 'pendente';
         $observacoes = $_POST['observacoes'] ?? '';
         $produtos = $_POST['produtos'] ?? [];
         
-        if ($id_cliente > 0 && !empty($produtos)) {
+        if ($id_fornecedor > 0 && !empty($produtos)) {
             $conn->begin_transaction();
             
             try {
-                // Calcular totais primeiro
+                // Calcular totais (sem IVA)
                 $total_bruto = 0;
-                $total_iva = 0;
                 
                 foreach ($produtos as $p) {
                     $base = (float)$p['preco_unitario'] * (int)$p['quantidade'];
-                    $taxa = (float)$p['taxa_iva'];
-                    $iva = $base * ($taxa / 100);
-                    
                     $total_bruto += $base;
-                    $total_iva += $iva;
                 }
                 
-                $total_com_iva = $total_bruto + $total_iva;
+                $total_liquido = $total_bruto; // Sem descontos ou IVA
                 
                 if ($action === 'adicionar') {
-                    // Aplicar desconto de fidelização (10%)
-                    $desconto_percent = 0;
-                    $stmt = $conn->prepare("SELECT desconto_pendente FROM clientes WHERE id_cliente=?");
-                    $stmt->bind_param("i", $id_cliente);
-                    $stmt->execute();
-                    $r = $stmt->get_result();
-                    if ($r && $r->num_rows > 0 && $r->fetch_assoc()['desconto_pendente'] == 1) {
-                        $desconto_percent = 10;
-                    }
+                    $num_encomenda = 'EF' . date('Y') . str_pad(mt_rand(1, 9999), 4, '0', STR_PAD_LEFT);
                     
-                    $total_liquido = $total_com_iva * (1 - ($desconto_percent / 100));
-                    $num_encomenda = 'EN' . date('Y') . str_pad(mt_rand(1, 9999), 4, '0', STR_PAD_LEFT);
-                    
-                    $stmt = $conn->prepare("INSERT INTO encomendas (num_encomenda, id_cliente, data_encomenda, estado, observacoes, desconto_percent, total_bruto, total_iva, total_liquido) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                    $stmt->bind_param("sisssdddd", $num_encomenda, $id_cliente, $data_encomenda, $estado, $observacoes, $desconto_percent, $total_bruto, $total_iva, $total_liquido);
+                    $stmt = $conn->prepare("INSERT INTO encomendas_fornecedores (num_encomenda, id_fornecedor, data_encomenda, estado, observacoes, total_bruto, total_liquido) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                    $stmt->bind_param("sisssdd", $num_encomenda, $id_fornecedor, $data_encomenda, $estado, $observacoes, $total_bruto, $total_liquido);
                     $stmt->execute();
-                    $id_encomenda = $conn->insert_id;
-
-                    if ($desconto_percent > 0) {
-                        $conn->query("UPDATE clientes SET desconto_pendente=0 WHERE id_cliente=$id_cliente");
-                    }
+                    $id_enc_fornecedor = $conn->insert_id;
                 } else {
-                    $id_encomenda = (int)$_POST['id_encomenda'];
-                    // Na edição, mantemos o desconto original
-                    $res = $conn->query("SELECT desconto_percent FROM encomendas WHERE id_encomenda = $id_encomenda");
-                    $desconto_percent = (float)($res->fetch_assoc()['desconto_percent'] ?? 0);
-                    $total_liquido = $total_com_iva * (1 - ($desconto_percent / 100));
+                    $id_enc_fornecedor = (int)$_POST['id_enc_fornecedor'];
                     
-                    $stmt = $conn->prepare("UPDATE encomendas SET id_cliente=?, data_encomenda=?, estado=?, observacoes=?, total_bruto=?, total_iva=?, total_liquido=? WHERE id_encomenda=?");
-                    $stmt->bind_param("isssdddi", $id_cliente, $data_encomenda, $estado, $observacoes, $total_bruto, $total_iva, $total_liquido, $id_encomenda);
+                    $stmt = $conn->prepare("UPDATE encomendas_fornecedores SET id_fornecedor=?, data_encomenda=?, estado=?, observacoes=?, total_bruto=?, total_liquido=? WHERE id_enc_fornecedor=?");
+                    $stmt->bind_param("isssddi", $id_fornecedor, $data_encomenda, $estado, $observacoes, $total_bruto, $total_liquido, $id_enc_fornecedor);
                     $stmt->execute();
                     
-                    $conn->query("DELETE FROM encomendas_linhas WHERE id_encomenda = $id_encomenda");
+                    $conn->query("DELETE FROM encomendas_fornecedores_linhas WHERE id_enc_fornecedor = $id_enc_fornecedor");
                 }
                 
                 // Inserir linhas
@@ -120,44 +109,36 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     $id_p = (int)$p['id_produto'];
                     $qtd = (int)$p['quantidade'];
                     $prc = (float)$p['preco_unitario'];
-                    $taxa = (float)$p['taxa_iva'];
-                    $viva = ($prc * ($taxa / 100)) * $qtd;
                     
-                    $stmt = $conn->prepare("INSERT INTO encomendas_linhas (id_encomenda, id_produto, quantidade, preco_unitario, taxa_iva, valor_iva) VALUES (?, ?, ?, ?, ?, ?)");
-                    $stmt->bind_param("iiiddd", $id_encomenda, $id_p, $qtd, $prc, $taxa, $viva);
+                    $stmt = $conn->prepare("INSERT INTO encomendas_fornecedores_linhas (id_enc_fornecedor, id_produto, quantidade, preco_unitario) VALUES (?, ?, ?, ?)");
+                    $stmt->bind_param("iiid", $id_enc_fornecedor, $id_p, $qtd, $prc);
                     $stmt->execute();
                 }
                 
                 $conn->commit();
                 
-                // Logs e Notificações
                 if ($action === 'adicionar') {
-                    registarLog($_SESSION['id_user'], 'ENCOMENDA_CRIADA', "Encomenda: $num_encomenda");
-                    if (($settings['email_novas_encomendas'] ?? 0) == 1) {
-                        $c_res = $conn->query("SELECT nome FROM clientes WHERE id_cliente = $id_cliente");
-                        $nome_c = $c_res ? $c_res->fetch_assoc()['nome'] : '';
-                        enviarAlertaNovaEncomenda(['id_encomenda'=>$id_encomenda, 'num_encomenda'=>$num_encomenda, 'nome_cliente'=>$nome_c, 'data_encomenda'=>$data_encomenda, 'estado'=>$estado]);
-                    }
+                    registarLog($_SESSION['id_user'], 'ENC_FORNECEDOR_CRIADA', "Encomenda Fornecedor: $num_encomenda");
                 } else {
-                    registarLog($_SESSION['id_user'], 'ENCOMENDA_EDITADA', "Encomenda ID: $id_encomenda");
+                    registarLog($_SESSION['id_user'], 'ENC_FORNECEDOR_EDITADA', "Encomenda Fornecedor ID: $id_enc_fornecedor");
                 }
 
-                $success = "Encomenda guardada com sucesso!";
+                $success = "Encomenda a fornecedor guardada com sucesso!";
             } catch (Exception $e) {
                 $conn->rollback();
                 $error = "Erro: " . $e->getMessage();
             }
         } else {
-            $error = "Preencha todos os campos obrigatórios.";
+            $error = "Preencha todos os campos obrigatórios e adicione pelo menos um produto.";
         }
     } elseif ($action === 'eliminar') {
-        $id = $_POST['id'] ?? 0;
+        $id = (int)($_POST['id'] ?? 0);
         if ($is_admin) {
-            $stmt = $conn->prepare("DELETE FROM encomendas WHERE id_encomenda=?");
+            $stmt = $conn->prepare("DELETE FROM encomendas_fornecedores WHERE id_enc_fornecedor=?");
             $stmt->bind_param("i", $id);
             if ($stmt->execute()) {
-                $success = "Encomenda eliminada com sucesso!";
-                registarLog($_SESSION['id_user'], 'ENCOMENDA_ELIMINADA', "Encomenda ID: $id");
+                $success = "Encomenda a fornecedor eliminada com sucesso!";
+                registarLog($_SESSION['id_user'], 'ENC_FORNECEDOR_ELIMINADA', "Encomenda Fornecedor ID: $id");
             } else {
                 $error = "Erro ao eliminar encomenda: " . $conn->error;
             }
@@ -165,44 +146,27 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $error = "Apenas administradores podem eliminar encomendas.";
         }
     } elseif ($action === 'atualizar_estado') {
-        $id_encomenda = $_POST['id_encomenda'] ?? 0;
+        $id_enc_fornecedor = (int)($_POST['id_enc_fornecedor'] ?? 0);
         $novo_estado = $_POST['novo_estado'] ?? '';
         
         if (!empty($novo_estado)) {
-            // Obter detalhes da encomenda antes de atualizar
-            $res_enc = $conn->query("SELECT e.estado, e.id_cliente, c.nome as nome_cliente 
-                                     FROM encomendas e 
-                                     LEFT JOIN clientes c ON e.id_cliente = c.id_cliente 
-                                     WHERE e.id_encomenda = " . (int)$id_encomenda);
+            $res_enc = $conn->query("SELECT ef.estado, ef.id_fornecedor, f.nome as nome_fornecedor 
+                                     FROM encomendas_fornecedores ef 
+                                     LEFT JOIN fornecedores f ON ef.id_fornecedor = f.id_fornecedor 
+                                     WHERE ef.id_enc_fornecedor = $id_enc_fornecedor");
             $enc_info = $res_enc->fetch_assoc();
             $estado_atual = $enc_info['estado'] ?? '';
-            $id_cliente = $enc_info['id_cliente'] ?? 0;
-            $nome_cliente = $enc_info['nome_cliente'] ?? 'Desconhecido';
+            $id_fornecedor = $enc_info['id_fornecedor'] ?? 0;
+            $nome_fornecedor = $enc_info['nome_fornecedor'] ?? 'Desconhecido';
 
             $pode_atualizar = true;
             $n_cab = 0;
 
-            // Se vai transitar para 'entregue' e não estava 'entregue'
-            if ($novo_estado === 'entregue' && $estado_atual !== 'entregue') {
-                // 1. Verificar se há stock suficiente para todas as linhas
-                $res_linhas = $conn->query("SELECT el.id_produto, el.quantidade, p.quantidade as stock_atual, p.descricao 
-                                            FROM encomendas_linhas el 
-                                            JOIN produtos p ON el.id_produto = p.id_produto 
-                                            WHERE el.id_encomenda = " . (int)$id_encomenda);
-                $produtos_sem_stock = [];
-
-                while ($linha = $res_linhas->fetch_assoc()) {
-                    if ($linha['stock_atual'] < $linha['quantidade']) {
-                        $produtos_sem_stock[] = $linha['descricao'] . " (Pedido: {$linha['quantidade']}, Em Stock: {$linha['stock_atual']})";
-                    }
-                }
-
-                if (!empty($produtos_sem_stock)) {
-                    $pode_atualizar = false;
-                    $error = "Erro: Stock insuficiente para entregar a encomenda. Faltam: " . implode(" | ", $produtos_sem_stock);
-                } else {
-                    // 2. Criar Movimento de Saída
-                    // Calcular max n_cab para manter a coerência das IDs dos movimentos
+            // Se vai transitar para 'recebido' e não estava 'recebido'
+            if ($novo_estado === 'recebido' && $estado_atual !== 'recebido') {
+                $conn->begin_transaction();
+                try {
+                    // 1. Criar Movimento de Entrada
                     $max_ent_res = $conn->query("SELECT MAX(n_cab) as max_id FROM ent_cab");
                     $max_sai_res = $conn->query("SELECT MAX(n_cab) as max_id FROM sai_cab");
                     $max_linhas_res = $conn->query("SELECT MAX(id) as max_id FROM linhas");
@@ -214,32 +178,31 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     $n_cab = max($max_ent, $max_sai, $max_linhas) + 1;
                     $data_atual = date('Y-m-d H:i:s');
 
-                    $stmt_head = $conn->prepare("INSERT INTO sai_cab (n_cab, cliente, data, id_cliente) VALUES (?, ?, ?, ?)");
-                    $stmt_head->bind_param("issi", $n_cab, $nome_cliente, $data_atual, $id_cliente);
+                    $stmt_head = $conn->prepare("INSERT INTO ent_cab (n_cab, cliente, data, id_fornecedor) VALUES (?, ?, ?, ?)");
+                    $stmt_head->bind_param("issi", $n_cab, $nome_fornecedor, $data_atual, $id_fornecedor);
                     $stmt_head->execute();
                     $stmt_head->close();
 
-                    // 3. Processar linhas e descontar stock
+                    // 2. Processar linhas e incrementar stock
                     $n_linha = 1;
-                    $res_linhas_detalhes = $conn->query("SELECT el.id_produto, el.quantidade, el.preco_unitario, p.id_categoria 
-                                                         FROM encomendas_linhas el 
-                                                         JOIN produtos p ON el.id_produto = p.id_produto 
-                                                         WHERE el.id_encomenda = " . (int)$id_encomenda);
+                    $res_linhas_detalhes = $conn->query("SELECT efl.id_produto, efl.quantidade, efl.preco_unitario, p.id_categoria 
+                                                         FROM encomendas_fornecedores_linhas efl 
+                                                         JOIN produtos p ON efl.id_produto = p.id_produto 
+                                                         WHERE efl.id_enc_fornecedor = $id_enc_fornecedor");
                     
                     while ($linha_detalhe = $res_linhas_detalhes->fetch_assoc()) {
-                        $id_prod = $linha_detalhe['id_produto'];
-                        $qtd = $linha_detalhe['quantidade'];
-                        $preco = $linha_detalhe['preco_unitario'];
-                        $id_cat = $linha_detalhe['id_categoria'];
+                        $id_prod = (int)$linha_detalhe['id_produto'];
+                        $qtd = (int)$linha_detalhe['quantidade'];
+                        $preco = (float)$linha_detalhe['preco_unitario'];
+                        $id_cat = (int)$linha_detalhe['id_categoria'];
 
-                        // Inserir linha do movimento (Nota: esquema usa 'descricao' como int e assume o mesmo id_produto)
                         $stmt_line = $conn->prepare("INSERT INTO linhas (id, n_linha, id_produto, id_categoria, descricao, quantidade, preço) VALUES (?, ?, ?, ?, ?, ?, ?)");
                         $stmt_line->bind_param("iiiiiid", $n_cab, $n_linha, $id_prod, $id_cat, $id_prod, $qtd, $preco);
                         $stmt_line->execute();
                         $stmt_line->close();
 
-                        // Descontar stock do produto real
-                        $upd = $conn->prepare("UPDATE produtos SET quantidade = quantidade - ? WHERE id_produto = ?");
+                        // Incrementar stock do produto
+                        $upd = $conn->prepare("UPDATE produtos SET quantidade = quantidade + ? WHERE id_produto = ?");
                         $upd->bind_param("ii", $qtd, $id_prod);
                         $upd->execute();
                         $upd->close();
@@ -247,25 +210,31 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         $n_linha++;
                     }
 
-                    registarLog($_SESSION['id_user'], "REGISTO_MOVIMENTO", "Tipo: SAIDA, Entidade: $nome_cliente, Doc: $n_cab, Ref. Encomenda: $id_encomenda");
+                    $stmt_upd = $conn->prepare("UPDATE encomendas_fornecedores SET estado=? WHERE id_enc_fornecedor=?");
+                    $stmt_upd->bind_param("si", $novo_estado, $id_enc_fornecedor);
+                    $stmt_upd->execute();
+                    $stmt_upd->close();
+
+                    $conn->commit();
+
+                    registarLog($_SESSION['id_user'], "REGISTO_MOVIMENTO", "Tipo: ENTRADA, Fornecedor: $nome_fornecedor, Doc: $n_cab, Ref. EncFornecedor: $id_enc_fornecedor");
+                    registarLog($_SESSION['id_user'], 'ENC_FORNECEDOR_ESTADO', "EncFornecedor ID: $id_enc_fornecedor - Novo estado: $novo_estado");
+                    
+                    $success = "Estado atualizado para 'recebido' com sucesso! Stock incrementado no Movimento de Entrada #$n_cab.";
+                    $pode_atualizar = false; // Já atualizado dentro da transação
+                } catch (Exception $e) {
+                    $conn->rollback();
+                    $error = "Erro ao processar receção da encomenda: " . $e->getMessage();
+                    $pode_atualizar = false;
                 }
             }
 
             if ($pode_atualizar) {
-                $stmt = $conn->prepare("UPDATE encomendas SET estado=? WHERE id_encomenda=?");
-                $stmt->bind_param("si", $novo_estado, $id_encomenda);
+                $stmt = $conn->prepare("UPDATE encomendas_fornecedores SET estado=? WHERE id_enc_fornecedor=?");
+                $stmt->bind_param("si", $novo_estado, $id_enc_fornecedor);
                 if ($stmt->execute()) {
                     $success = "Estado atualizado com sucesso!";
-                    if ($novo_estado === 'entregue' && $estado_atual !== 'entregue') {
-                        $success .= " Stock descontado no Movimento #$n_cab.";
-                    }
-                    registarLog($_SESSION['id_user'], 'ENCOMENDA_ESTADO', "Encomenda ID: $id_encomenda - Novo estado: $novo_estado");
-
-                    if ($novo_estado === 'entregue' && $estado_atual !== 'entregue') {
-                        // Atribuir desconto para a próxima compra e notificar o cliente
-                        $conn->query("UPDATE clientes SET desconto_pendente=1 WHERE id_cliente=" . (int)$id_cliente);
-                        enviarEmailStatusEntregue($id_encomenda);
-                    }
+                    registarLog($_SESSION['id_user'], 'ENC_FORNECEDOR_ESTADO', "EncFornecedor ID: $id_enc_fornecedor - Novo estado: $novo_estado");
                 } else {
                     $error = "Erro ao atualizar estado: " . $conn->error;
                 }
@@ -275,29 +244,25 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 }
 }
 
-
-// Buscar encomendas com paginação
-$list = new ListManager($conn, 10); // 10 encomendas por página
-$filtro_sql = $list->getFilterSQL(['e.num_encomenda', 'c.nome', 'e.estado'], 'e');
-$list->calculatePagination('encomendas e LEFT JOIN clientes c ON e.id_cliente = c.id_cliente', $filtro_sql);
+// Buscar encomendas a fornecedores com paginação
+$list = new ListManager($conn, 10);
+$filtro_sql = $list->getFilterSQL(['ef.num_encomenda', 'f.nome', 'ef.estado'], 'ef');
+$list->calculatePagination('encomendas_fornecedores ef LEFT JOIN fornecedores f ON ef.id_fornecedor = f.id_fornecedor', $filtro_sql);
 $offset = $list->offset;
 
-$sql = "SELECT e.*, c.nome as nome_cliente 
-        FROM encomendas e 
-        LEFT JOIN clientes c ON e.id_cliente = c.id_cliente 
+$sql = "SELECT ef.*, f.nome as nome_fornecedor 
+        FROM encomendas_fornecedores ef 
+        LEFT JOIN fornecedores f ON ef.id_fornecedor = f.id_fornecedor 
         $filtro_sql 
-        ORDER BY e.data_encomenda DESC, e.id_encomenda DESC 
+        ORDER BY ef.data_encomenda DESC, ef.id_enc_fornecedor DESC 
         LIMIT 10 OFFSET $offset";
 $encomendas = $conn->query($sql);
 
-$clientes = $conn->query("SELECT id_cliente, nome, desconto_pendente FROM clientes ORDER BY nome ASC");
+$fornecedores = $conn->query("SELECT id_fornecedor, nome FROM fornecedores ORDER BY nome ASC");
 $produtos = $conn->query("
-    SELECT p.id_produto, p.descricao, p.preco_unit, p.quantidade, t.taxa as taxa_iva 
-    FROM produtos p 
-    LEFT JOIN categoria c ON p.id_categoria = c.id_categoria 
-    LEFT JOIN iva_taxas t ON c.id_iva = t.id_taxa 
-    WHERE p.quantidade > 0 
-    ORDER BY p.descricao ASC
+    SELECT id_produto, descricao, preco_unit 
+    FROM produtos 
+    ORDER BY descricao ASC
 ");
 ?>
 
@@ -305,7 +270,7 @@ $produtos = $conn->query("
 <html lang="pt">
 <head>
     <meta charset="UTF-8">
-    <title>Gestão de Encomendas - TSTORE</title>
+    <title>Encomendas a Fornecedores - TSTORE</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="assets/css/styles.css">
     <link rel="stylesheet" href="assets/css/nav_dropdown.css">
@@ -318,14 +283,13 @@ $produtos = $conn->query("
             text-transform: uppercase;
         }
         .estado-pendente { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
-        .estado-processamento { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
-        .estado-enviado { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
-        .estado-entregue { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .estado-enviado { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+        .estado-recebido { background: rgba(16, 185, 129, 0.2); color: #10b981; }
         .estado-cancelado { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
         
         .encomenda-item {
             background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(188, 111, 241, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
             border-radius: 10px;
             padding: 15px;
             margin-bottom: 15px;
@@ -341,7 +305,7 @@ $produtos = $conn->query("
         .encomenda-numero {
             font-size: 1.2rem;
             font-weight: bold;
-            color: #bc6ff1;
+            color: #10b981;
         }
         
         .encomenda-total {
@@ -387,7 +351,7 @@ $produtos = $conn->query("
         .produtos-selecionados {
             max-height: 200px;
             overflow-y: auto;
-            border: 1px solid rgba(188, 111, 241, 0.2);
+            border: 1px solid rgba(16, 185, 129, 0.2);
             border-radius: 8px;
             padding: 10px;
             margin-top: 10px;
@@ -398,7 +362,7 @@ $produtos = $conn->query("
             justify-content: space-between;
             align-items: center;
             padding: 8px;
-            background: rgba(188, 111, 241, 0.1);
+            background: rgba(16, 185, 129, 0.1);
             border-radius: 5px;
             margin-bottom: 5px;
         }
@@ -411,7 +375,7 @@ $produtos = $conn->query("
             border-radius: 4px;
             cursor: pointer;
             font-size: 0.8rem;
-            }
+        }
     </style>
 </head>
 <body>
@@ -426,12 +390,12 @@ $produtos = $conn->query("
                         <i class="fas fa-arrow-left" style="margin:0;"></i>
                     </button>
                     <div>
-                        <h2>Gestão de Encomendas</h2>
-                        <p>Gerir encomendas e vendas</p>
+                        <h2>Encomendas a Fornecedores</h2>
+                        <p>Gerir compras e pedidos a fornecedores (sem IVA)</p>
                     </div>
                 </div>
                 <?php if ($pode_gerir): ?>
-                <button class="nav-btn active" onclick="abrirModal()">
+                <button class="nav-btn active" onclick="abrirModal()" style="background: linear-gradient(45deg, #10b981, #059669);">
                     <i class="fas fa-plus"></i> Nova Encomenda
                 </button>
                 <?php endif; ?>
@@ -449,7 +413,7 @@ $produtos = $conn->query("
                 </div>
             <?php endif; ?>
 
-            <?php $list->renderSearchBar('Pesquisar encomendas...'); ?>
+            <?php $list->renderSearchBar('Pesquisar encomendas a fornecedores...'); ?>
 
             <div class="table-container">
                 <?php if ($encomendas && $encomendas->num_rows > 0): ?>
@@ -459,7 +423,7 @@ $produtos = $conn->query("
                                 <div>
                                     <div class="encomenda-numero"><?php echo htmlspecialchars($encomenda['num_encomenda']); ?></div>
                                     <div style="color: #888; font-size: 0.9rem;">
-                                        Cliente: <?php echo htmlspecialchars($encomenda['nome_cliente']); ?> | 
+                                        Fornecedor: <?php echo htmlspecialchars($encomenda['nome_fornecedor']); ?> | 
                                         Data: <?php echo date('d/m/Y', strtotime($encomenda['data_encomenda'])); ?>
                                     </div>
                                 </div>
@@ -467,29 +431,18 @@ $produtos = $conn->query("
                                     <span class="estado-badge estado-<?php echo $encomenda['estado']; ?>">
                                         <?php echo $encomenda['estado']; ?>
                                     </span>
-                                    <div class="encomenda-total" style="display: flex; flex-direction: column; gap: 6px; align-items: flex-end;">
-                                        <div style="font-size: 0.85rem; font-weight: normal; color: #aaa;">
-                                            Base: <?php echo number_format($encomenda['total_bruto'], 2, ',', '.'); ?> € | 
-                                            IVA: <?php echo number_format($encomenda['total_iva'], 2, ',', '.'); ?> €
-                                        </div>
-                                        <div>
-                                            <?php echo number_format($encomenda['total_liquido'], 2, ',', '.'); ?> €
-                                        </div>
-                                        <?php if ($encomenda['desconto_percent'] > 0): ?>
-                                            <div style="font-size: 0.8rem; color: #fbbf24;">
-                                                <i class="fas fa-star"></i> Desconto: <?php echo number_format($encomenda['desconto_percent'], 0); ?>%
-                                            </div>
-                                        <?php endif; ?>
+                                    <div class="encomenda-total">
+                                        <?php echo number_format($encomenda['total_bruto'], 2, ',', '.'); ?> €
                                     </div>
                                 </div>
                             </div>
                             
                             <div class="produtos-lista">
                                 <?php
-                                $prod_sql = "SELECT el.*, p.descricao 
-                                           FROM encomendas_linhas el 
-                                           JOIN produtos p ON el.id_produto = p.id_produto 
-                                           WHERE el.id_encomenda = " . $encomenda['id_encomenda'];
+                                $prod_sql = "SELECT efl.*, p.descricao 
+                                           FROM encomendas_fornecedores_linhas efl 
+                                           JOIN produtos p ON efl.id_produto = p.id_produto 
+                                           WHERE efl.id_enc_fornecedor = " . $encomenda['id_enc_fornecedor'];
                                 $prod_result = $conn->query($prod_sql);
                                 if ($prod_result && $prod_result->num_rows > 0):
                                     while ($prod = $prod_result->fetch_assoc()):
@@ -498,7 +451,6 @@ $produtos = $conn->query("
                                         <span><?php echo htmlspecialchars($prod['descricao']); ?></span>
                                         <span>
                                             <?php echo $prod['quantidade']; ?> x <?php echo number_format($prod['preco_unitario'], 2, ',', '.'); ?> € 
-                                            <span style="font-size: 0.8rem; color: #aaa; margin-left: 5px;">(IVA <?php echo number_format($prod['taxa_iva'], 0); ?>%)</span>
                                             = <?php echo number_format($prod['quantidade'] * $prod['preco_unitario'], 2, ',', '.'); ?> €
                                         </span>
                                     </div>
@@ -510,28 +462,27 @@ $produtos = $conn->query("
                             
                             <div style="margin-top: 10px; display: flex; gap: 10px;">
                                 <?php if ($pode_gerir): ?>
-                                <button class="nav-btn" onclick="editarEncomenda(<?php echo $encomenda['id_encomenda']; ?>)" style="padding: 8px 15px; font-size: 0.9rem;">
+                                <button class="nav-btn" onclick="editarEncomenda(<?php echo $encomenda['id_enc_fornecedor']; ?>)" style="padding: 8px 15px; font-size: 0.9rem;">
                                     <i class="fas fa-edit"></i> Editar
                                 </button>
                                 <?php endif; ?>
                                 
-                                <a href="exportar_pdf_encomenda.php?id=<?php echo $encomenda['id_encomenda']; ?>" target="_blank" class="nav-btn" style="padding: 8px 15px; font-size: 0.9rem; background: rgba(188, 111, 241, 0.15); border-color: rgba(188, 111, 241, 0.4); color: #bc6ff1; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; margin: 0;">
+                                <a href="exportar_pdf_enc_fornecedor.php?id=<?php echo $encomenda['id_enc_fornecedor']; ?>" target="_blank" class="nav-btn" style="padding: 8px 15px; font-size: 0.9rem; background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.4); color: #10b981; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; margin: 0;">
                                     <i class="fas fa-file-pdf"></i> PDF
                                 </a>
                                 
                                 <?php if ($pode_gerir): ?>
-                                <select onchange="atualizarEstado(<?php echo $encomenda['id_encomenda']; ?>, this.value)" style="padding: 8px; border-radius: 5px; background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(188,111,241,0.3);">
+                                <select onchange="atualizarEstado(<?php echo $encomenda['id_enc_fornecedor']; ?>, this.value)" style="padding: 8px; border-radius: 5px; background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(16,185,129,0.3);">
                                     <option value="">Alterar Estado</option>
                                     <option value="pendente" <?php echo $encomenda['estado'] == 'pendente' ? 'selected' : ''; ?>>Pendente</option>
-                                    <option value="processamento" <?php echo $encomenda['estado'] == 'processamento' ? 'selected' : ''; ?>>Em Processamento</option>
                                     <option value="enviado" <?php echo $encomenda['estado'] == 'enviado' ? 'selected' : ''; ?>>Enviado</option>
-                                    <option value="entregue" <?php echo $encomenda['estado'] == 'entregue' ? 'selected' : ''; ?>>Entregue</option>
+                                    <option value="recebido" <?php echo $encomenda['estado'] == 'recebido' ? 'selected' : ''; ?>>Recebido</option>
                                     <option value="cancelado" <?php echo $encomenda['estado'] == 'cancelado' ? 'selected' : ''; ?>>Cancelado</option>
                                 </select>
                                 <?php endif; ?>
                                 
                                 <?php if ($is_admin): ?>
-                                    <button class="nav-btn" onclick="eliminarEncomenda(<?php echo $encomenda['id_encomenda']; ?>)" style="padding: 8px 15px; font-size: 0.9rem; background: rgba(239,68,68,0.2);">
+                                    <button class="nav-btn" onclick="eliminarEncomenda(<?php echo $encomenda['id_enc_fornecedor']; ?>)" style="padding: 8px 15px; font-size: 0.9rem; background: rgba(239,68,68,0.2);">
                                         <i class="fas fa-trash"></i> Eliminar
                                     </button>
                                 <?php endif; ?>
@@ -540,8 +491,8 @@ $produtos = $conn->query("
                     <?php endwhile; ?>
                 <?php else: ?>
                     <div style="text-align: center; padding: 50px; opacity: 0.5;">
-                        <i class="fas fa-shopping-cart" style="font-size: 3rem; margin-bottom: 15px;"></i>
-                        <p>Sem encomendas registadas.</p>
+                        <i class="fas fa-truck" style="font-size: 3rem; margin-bottom: 15px;"></i>
+                        <p>Sem encomendas a fornecedores registadas.</p>
                     </div>
                 <?php endif; ?>
             </div>
@@ -550,24 +501,23 @@ $produtos = $conn->query("
         </main>
     </div>
 
-    <!-- Modal Encomenda -->
+    <!-- Modal Encomenda Fornecedor -->
     <div id="encomendaModal" class="modal">
         <div class="modal-content" style="max-width: 800px;">
             <span class="close-modal" onclick="fecharModal()">&times;</span>
-            <h2 id="modalTitle">Nova Encomenda</h2>
+            <h2 id="modalTitle">Nova Encomenda a Fornecedor</h2>
             <form method="POST" id="encomendaForm">
                 <input type="hidden" name="action" id="formAction" value="adicionar">
-                <input type="hidden" name="id_encomenda" id="encomendaId">
+                <input type="hidden" name="id_enc_fornecedor" id="encomendaId">
                 
                 <div class="modal-grid">
                     <div class="input-group">
-                        <label>Cliente *</label>
-                        <select name="id_cliente" id="clienteSelect" required>
-                            <option value="">Selecione um cliente</option>
-                            <?php while ($cliente = $clientes->fetch_assoc()): ?>
-                                <option value="<?php echo $cliente['id_cliente']; ?>" data-desconto="<?php echo $cliente['desconto_pendente']; ?>">
-                                    <?php echo htmlspecialchars($cliente['nome']); ?> 
-                                    <?php if ($cliente['desconto_pendente']): ?>⭐ (10% bónus)<?php endif; ?>
+                        <label>Fornecedor *</label>
+                        <select name="id_fornecedor" id="fornecedorSelect" required>
+                            <option value="">Selecione um fornecedor</option>
+                            <?php while ($fornecedor = $fornecedores->fetch_assoc()): ?>
+                                <option value="<?php echo $fornecedor['id_fornecedor']; ?>">
+                                    <?php echo htmlspecialchars($fornecedor['nome']); ?>
                                 </option>
                             <?php endwhile; ?>
                         </select>
@@ -583,9 +533,8 @@ $produtos = $conn->query("
                     <label>Estado</label>
                     <select name="estado" id="estadoSelect">
                         <option value="pendente">Pendente</option>
-                        <option value="processamento">Em Processamento</option>
                         <option value="enviado">Enviado</option>
-                        <option value="entregue">Entregue</option>
+                        <option value="recebido">Recebido</option>
                         <option value="cancelado">Cancelado</option>
                     </select>
                 </div>
@@ -604,36 +553,24 @@ $produtos = $conn->query("
                             $produtos->data_seek(0);
                             while ($produto = $produtos->fetch_assoc()): 
                                 $preco = $produto['preco_unit'];
-                                $taxa_iva = $produto['taxa_iva'] ?? 0;
                             ?>
-                                <option value="<?php echo $produto['id_produto']; ?>" data-preco="<?php echo $preco; ?>" data-iva="<?php echo $taxa_iva; ?>" data-nome="<?php echo htmlspecialchars($produto['descricao']); ?>">
-                                    <?php echo htmlspecialchars($produto['descricao']); ?> - IVA: <?php echo $taxa_iva; ?>% - <?php echo number_format($preco, 2, ',', '.'); ?> €
+                                <option value="<?php echo $produto['id_produto']; ?>" data-preco="<?php echo $preco; ?>" data-nome="<?php echo htmlspecialchars($produto['descricao']); ?>">
+                                    <?php echo htmlspecialchars($produto['descricao']); ?> (Ref. Venda: <?php echo number_format($preco, 2, ',', '.'); ?> €)
                                 </option>
                             <?php endwhile; ?>
                         </select>
-                        <input type="number" id="quantidadeProduto" placeholder="Quantidade" min="1" style="width: 120px;">
-                        <button type="button" onclick="adicionarProduto()" class="nav-btn">
+                        <input type="number" id="quantidadeProduto" placeholder="Qtd" min="1" style="width: 90px;">
+                        <input type="number" id="precoProduto" placeholder="Preço Custo (€)" step="0.01" min="0" style="width: 130px;">
+                        <button type="button" onclick="adicionarProduto()" class="nav-btn" style="background: linear-gradient(45deg, #10b981, #059669);">
                             <i class="fas fa-plus"></i> Adicionar
                         </button>
                     </div>
                     
                     <div id="produtosSelecionados" class="produtos-selecionados"></div>
                     
-                    <div id="resumoValores" style="margin-top: 15px; padding: 15px; background: rgba(188, 111, 241, 0.05); border-radius: 10px; border: 1px dashed rgba(188, 111, 241, 0.3);">
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                            <span>Subtotal (Base):</span>
-                            <span id="resumoSubtotal">0.00 €</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                            <span>Total IVA:</span>
-                            <span id="resumoIva">0.00 €</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px; color: #fbbf24; display: none;" id="linhaDesconto">
-                            <span>Desconto Fidelização (10%):</span>
-                            <span id="resumoDesconto">0.00 €</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 1.1rem; color: #10b981; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 5px; margin-top: 5px;">
-                            <span>TOTAL FINAL:</span>
+                    <div id="resumoValores" style="margin-top: 15px; padding: 15px; background: rgba(16, 185, 129, 0.05); border-radius: 10px; border: 1px dashed rgba(16, 185, 129, 0.3);">
+                        <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 1.1rem; color: #10b981;">
+                            <span>TOTAL (Sem IVA):</span>
                             <span id="resumoTotal">0.00 €</span>
                         </div>
                     </div>
@@ -643,7 +580,7 @@ $produtos = $conn->query("
                     <button type="button" onclick="fecharModal()" class="nav-btn" style="background: rgba(107, 114, 128, 0.2); margin: 0;">
                         <i class="fas fa-times"></i> Cancelar
                     </button>
-                    <button type="submit" class="nav-btn active" style="margin: 0;">
+                    <button type="submit" class="nav-btn active" style="background: linear-gradient(45deg, #10b981, #059669); margin: 0;">
                         <i class="fas fa-save"></i> Guardar Encomenda
                     </button>
                 </div>
@@ -653,16 +590,25 @@ $produtos = $conn->query("
 
     <script>
         let produtosArray = [];
-        let temDescontoFidelizacao = false;
         
+        // Quando seleciona o produto, preenche o preço sugerido no input de preço
+        document.getElementById("produtoSelect").addEventListener("change", function() {
+            const selected = this.options[this.selectedIndex];
+            if (selected && selected.value) {
+                const preco = parseFloat(selected.getAttribute('data-preco') || 0);
+                document.getElementById("precoProduto").value = preco.toFixed(2);
+            } else {
+                document.getElementById("precoProduto").value = "";
+            }
+        });
+
         function abrirModal() {
-            document.getElementById("modalTitle").innerText = "Nova Encomenda";
+            document.getElementById("modalTitle").innerText = "Nova Encomenda a Fornecedor";
             document.getElementById("formAction").value = "adicionar";
             document.getElementById("encomendaId").value = "";
             document.getElementById("encomendaForm").reset();
             document.getElementById("dataEncomenda").value = new Date().toISOString().split('T')[0];
             produtosArray = [];
-            temDescontoFidelizacao = false;
             atualizarProdutosSelecionados();
             document.getElementById("encomendaModal").style.display = "flex";
         }
@@ -671,27 +617,21 @@ $produtos = $conn->query("
             document.getElementById("encomendaModal").style.display = "none";
         }
         
-        // Listener para detetar desconto do cliente
-        document.getElementById("clienteSelect").addEventListener("change", function() {
-            const selected = this.options[this.selectedIndex];
-            temDescontoFidelizacao = selected.getAttribute('data-desconto') == "1";
-            atualizarProdutosSelecionados(); // Recalcular totais
-        });
-        
         function adicionarProduto() {
             const select = document.getElementById("produtoSelect");
             const quantidade = parseInt(document.getElementById("quantidadeProduto").value);
+            const precoInput = document.getElementById("precoProduto").value;
+            const preco = parseFloat(precoInput);
             
-            if (!select.value || !quantidade || quantidade <= 0) {
-                showToast("Selecione um produto e quantidade válida.", "warning");
+            if (!select.value || !quantidade || quantidade <= 0 || isNaN(preco) || preco < 0) {
+                showToast("Selecione um produto, quantidade e preço válidos.", "warning");
                 return;
             }
             
             const produto = {
                 id_produto: select.value,
                 descricao: select.options[select.selectedIndex].getAttribute('data-nome'),
-                preco_unitario: parseFloat(select.options[select.selectedIndex].getAttribute('data-preco')),
-                taxa_iva: parseFloat(select.options[select.selectedIndex].getAttribute('data-iva') || 0),
+                preco_unitario: preco,
                 quantidade: quantidade
             };
             
@@ -700,6 +640,7 @@ $produtos = $conn->query("
             
             select.value = "";
             document.getElementById("quantidadeProduto").value = "";
+            document.getElementById("precoProduto").value = "";
         }
         
         function removerProduto(index) {
@@ -711,20 +652,16 @@ $produtos = $conn->query("
             const container = document.getElementById("produtosSelecionados");
             container.innerHTML = "";
             
-            let subtotal = 0;
-            let totalIva = 0;
+            let total = 0;
             
             produtosArray.forEach((produto, index) => {
-                const valorIva = (produto.preco_unitario * (produto.taxa_iva / 100)) * produto.quantidade;
-                const totalLinha = (produto.preco_unitario * produto.quantidade) + valorIva;
-                
-                subtotal += (produto.preco_unitario * produto.quantidade);
-                totalIva += valorIva;
+                const totalLinha = produto.preco_unitario * produto.quantidade;
+                total += totalLinha;
                 
                 const div = document.createElement("div");
                 div.className = "produto-selecionado";
                 div.innerHTML = `
-                    <span>${produto.descricao} - ${produto.quantidade} x ${produto.preco_unitario.toFixed(2)} € (+${produto.taxa_iva}%) = ${totalLinha.toFixed(2)} €</span>
+                    <span>${produto.descricao} - ${produto.quantidade} x ${produto.preco_unitario.toFixed(2)} € = ${totalLinha.toFixed(2)} €</span>
                     <button type="button" onclick="removerProduto(${index})" class="btn-remover-produto">
                         <i class="fas fa-times"></i>
                     </button>
@@ -732,26 +669,11 @@ $produtos = $conn->query("
                 container.appendChild(div);
             });
             
-            const totalComIva = subtotal + totalIva;
-            let desconto = 0;
-            
-            if (temDescontoFidelizacao) {
-                desconto = totalComIva * 0.10;
-                document.getElementById("linhaDesconto").style.display = "flex";
-            } else {
-                document.getElementById("linhaDesconto").style.display = "none";
-            }
-            
-            const totalFinal = totalComIva - desconto;
-            
-            document.getElementById("resumoSubtotal").innerText = subtotal.toFixed(2) + " €";
-            document.getElementById("resumoIva").innerText = totalIva.toFixed(2) + " €";
-            document.getElementById("resumoDesconto").innerText = "-" + desconto.toFixed(2) + " €";
-            document.getElementById("resumoTotal").innerText = totalFinal.toFixed(2) + " €";
+            document.getElementById("resumoTotal").innerText = total.toFixed(2) + " €";
         }
         
         function editarEncomenda(id) {
-            fetch('actions/get_encomenda.php?id=' + id)
+            fetch('actions/get_enc_fornecedor.php?id=' + id)
                 .then(r => r.json())
                 .then(data => {
                     if (data.error) {
@@ -760,22 +682,18 @@ $produtos = $conn->query("
                     }
                     
                     abrirModal();
-                    document.getElementById("modalTitle").innerText = "Editar Encomenda #" + data.num_encomenda;
+                    document.getElementById("modalTitle").innerText = "Editar Encomenda a Fornecedor #" + data.num_encomenda;
                     document.getElementById("formAction").value = "editar";
                     document.getElementById("encomendaId").value = id;
-                    document.getElementById("clienteSelect").value = data.id_cliente;
+                    document.getElementById("fornecedorSelect").value = data.id_fornecedor;
                     document.getElementById("dataEncomenda").value = data.data_encomenda;
                     document.getElementById("estadoSelect").value = data.estado;
                     document.getElementById("observacoes").value = data.observacoes || "";
-                    
-                    // Simular o evento de desconto
-                    temDescontoFidelizacao = data.desconto_percent > 0;
                     
                     produtosArray = data.produtos.map(p => ({
                         id_produto: p.id_produto,
                         descricao: p.descricao,
                         preco_unitario: parseFloat(p.preco_unitario),
-                        taxa_iva: parseFloat(p.taxa_iva || 0),
                         quantidade: parseInt(p.quantidade)
                     }));
                     
@@ -788,20 +706,20 @@ $produtos = $conn->query("
             showConfirm("Deseja alterar o estado da encomenda para '" + estado + "'?", () => {
                 const form = document.createElement("form");
                 form.method = "POST";
-                form.innerHTML = `<input type="hidden" name="action" value="atualizar_estado"><input type="hidden" name="id_encomenda" value="${id}"><input type="hidden" name="novo_estado" value="${estado}">`;
+                form.innerHTML = `<input type="hidden" name="action" value="atualizar_estado"><input type="hidden" name="id_enc_fornecedor" value="${id}"><input type="hidden" name="novo_estado" value="${estado}">`;
                 document.body.appendChild(form);
                 form.submit();
             }, "Atualizar Estado", "fa-sync-alt");
         }
         
         function eliminarEncomenda(id) {
-            showConfirm("Tem certeza que deseja eliminar esta encomenda?", () => {
+            showConfirm("Tem certeza que deseja eliminar esta encomenda a fornecedor?", () => {
                 const form = document.createElement("form");
                 form.method = "POST";
                 form.innerHTML = `<input type="hidden" name="action" value="eliminar"><input type="hidden" name="id" value="${id}">`;
                 document.body.appendChild(form);
                 form.submit();
-            }, "Eliminar Encomenda", "fa-file-invoice-dollar");
+            }, "Eliminar Encomenda", "fa-truck");
         }
         
         document.getElementById("encomendaForm").addEventListener("submit", function(e) {
@@ -816,7 +734,6 @@ $produtos = $conn->query("
                 formData.append(`produtos[${index}][id_produto]`, produto.id_produto);
                 formData.append(`produtos[${index}][quantidade]`, produto.quantidade);
                 formData.append(`produtos[${index}][preco_unitario]`, produto.preco_unitario);
-                formData.append(`produtos[${index}][taxa_iva]`, produto.taxa_iva);
             });
             
             fetch(window.location.href, {

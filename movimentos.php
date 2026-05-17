@@ -43,61 +43,7 @@ $result = $conn->query($sql);
     <style>
         .nav-right { display: flex; align-items: center; gap: 15px; }
     </style>
-    <script>
-        // Funções de notificação definidas globalmente para evitar ReferenceError
-        function toggleNotifications() {
-            const dropdown = document.getElementById('notifDropdown');
-            const bell = document.querySelector('.notification-bell');
-            if (dropdown) dropdown.classList.toggle('show');
-            if (bell) bell.classList.toggle('active');
-        }
-
-        function dismissNotification(id, element) {
-            fetch('actions/notifications_actions.php?mark_read=' + id + '&ajax=1')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        const item = element.closest('.notif-item');
-                        const body = item.parentElement;
-                        
-                        item.style.opacity = '0';
-                        item.style.transform = 'translateX(20px)';
-                        item.style.transition = 'all 0.3s ease';
-                        
-                        setTimeout(() => {
-                            item.remove();
-                            
-                            const badge = document.querySelector('.bell-badge');
-                            if (badge) {
-                                let count = parseInt(badge.innerText) - 1;
-                                if (count <= 0) {
-                                    badge.remove();
-                                } else {
-                                    badge.innerText = count;
-                                }
-                            }
-                            
-                            if (body.querySelectorAll('.notif-item').length === 0) {
-                                body.innerHTML = '<div class="no-notifs">Sem alertas pendentes.</div>';
-                            }
-                        }, 300);
-                    }
-                })
-                .catch(err => console.error('Erro ao marcar notificação:', err));
-        }
-
-        // Fechar dropdown ao clicar fora
-        window.addEventListener('click', function(e) {
-            if (!e.target.closest('.notification-bell-container')) {
-                const dropdown = document.getElementById('notifDropdown');
-                const bell = document.querySelector('.notification-bell');
-                if (dropdown && dropdown.classList.contains('show')) {
-                    dropdown.classList.remove('show');
-                    if (bell) bell.classList.remove('active');
-                }
-            }
-        });
-    </script>
+</script>
 </head>
 
 <body>

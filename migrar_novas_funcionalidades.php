@@ -166,6 +166,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['executar_migracao']))
             throw new Exception("Erro ao criar tabela encomendas_linhas");
         }
         
+        $sql_encomendas_fornecedores = "CREATE TABLE IF NOT EXISTS encomendas_fornecedores (
+            id_enc_fornecedor INT AUTO_INCREMENT PRIMARY KEY,
+            num_encomenda VARCHAR(20) NOT NULL UNIQUE,
+            id_fornecedor INT NOT NULL,
+            data_encomenda DATE NOT NULL,
+            estado ENUM('pendente','enviado','recebido','cancelado') DEFAULT 'pendente',
+            observacoes TEXT,
+            total_bruto DECIMAL(10,2) DEFAULT 0,
+            total_liquido DECIMAL(10,2) DEFAULT 0,
+            data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (id_fornecedor) REFERENCES fornecedores(id_fornecedor)
+        )";
+        
+        if ($conn->query($sql_encomendas_fornecedores)) {
+            echo "<p class='success'>✓ Tabela encomendas_fornecedores criada</p>";
+        } else {
+            throw new Exception("Erro ao criar tabela encomendas_fornecedores: " . $conn->error);
+        }
+        
+        $sql_encomendas_forn_linhas = "CREATE TABLE IF NOT EXISTS encomendas_fornecedores_linhas (
+            id_linha INT AUTO_INCREMENT PRIMARY KEY,
+            id_enc_fornecedor INT NOT NULL,
+            id_produto INT NOT NULL,
+            quantidade INT NOT NULL,
+            preco_unitario DECIMAL(10,2) NOT NULL,
+            FOREIGN KEY (id_enc_fornecedor) REFERENCES encomendas_fornecedores(id_enc_fornecedor) ON DELETE CASCADE,
+            FOREIGN KEY (id_produto) REFERENCES produtos(id_produto)
+        )";
+        
+        if ($conn->query($sql_encomendas_forn_linhas)) {
+            echo "<p class='success'>✓ Tabela encomendas_fornecedores_linhas criada</p>";
+        } else {
+            throw new Exception("Erro ao criar tabela encomendas_fornecedores_linhas: " . $conn->error);
+        }
+        
         // 2. Criar tabelas de promoções
         echo "<h3><i class='fas fa-tags'></i> A criar tabelas de promoções...</h3>";
         

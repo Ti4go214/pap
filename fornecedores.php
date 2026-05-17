@@ -294,13 +294,13 @@ $fornecedores = $conn->query($sql);
         }
 
         function eliminarFornecedor(id, nome) {
-            if (confirm('Tem a certeza que deseja eliminar o fornecedor "' + nome + '"?')) {
+            showConfirm('Tem a certeza que deseja eliminar o fornecedor "' + nome + '"?', () => {
                 const form = document.createElement('form');
                 form.method = 'POST';
                 form.innerHTML = '<input type="hidden" name="action" value="eliminar"><input type="hidden" name="id" value="' + id + '">';
                 document.body.appendChild(form);
                 form.submit();
-            }
+            }, "Eliminar Fornecedor", "fa-truck-loading");
         }
 
         // Fechar modal ao clicar fora
@@ -326,5 +326,31 @@ $fornecedores = $conn->query($sql);
             }
         });
     </script>
+
+<?php
+// Lógica para abrir modal de edição automaticamente via URL
+if (isset($_GET['edit_id'])) {
+    $edit_id = intval($_GET['edit_id']);
+    $res_edit = $conn->query("SELECT * FROM fornecedores WHERE id_fornecedor = $edit_id");
+    if ($res_edit && $row_edit = $res_edit->fetch_assoc()) {
+        $nome = addslashes($row_edit['nome']);
+        $nif = addslashes($row_edit['nif'] ?? '');
+        $email = addslashes($row_edit['email'] ?? '');
+        $tel = addslashes($row_edit['telefone'] ?? '');
+        $morada = addslashes($row_edit['morada'] ?? '');
+        $cp = addslashes($row_edit['cpostal'] ?? '');
+        $loc = addslashes($row_edit['localidade'] ?? '');
+        $pais = addslashes($row_edit['pais'] ?? 'Portugal');
+        
+        echo "<script>
+            document.addEventListener('DOMContentLoaded', function() {
+                setTimeout(function() {
+                    editarFornecedor('$edit_id', '$nome', '$nif', '$email', '$tel', '$morada', '$cp', '$loc', '$pais');
+                }, 500);
+            });
+        </script>";
+    }
+}
+?>
 </body>
 </html>
